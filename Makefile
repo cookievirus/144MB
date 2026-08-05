@@ -1,39 +1,28 @@
-# ============================================================================
-# IRON & INVESTMENT - smithy demo
-# Pure C99 + static Raylib. Unity build (single TU) so LTO sees everything.
-# ============================================================================
-CC      ?= gcc
-RAYLIB  ?= ../raylib/src          # path to your trimmed raylib build
+# IRON & INVESTMENT - Demo 1.0
+RAYLIB ?= /usr/local
+CC     ?= gcc
+CFLAGS  = -std=c11 -O2 -Wall -Wextra -DPLATFORM_DESKTOP_RGFW -I$(RAYLIB)/include -Isrc
+LDFLAGS = -L$(RAYLIB)/lib -lraylib -lm -lpthread -ldl -lrt -lX11
 
-CFLAGS  = -std=c99 -Os -flto -ffunction-sections -fdata-sections \
-          -fno-asynchronous-unwind-tables -fno-ident \
-          -Wall -Wextra -I. -I$(RAYLIB)
+SRC = src/main.c src/gfx.c src/ui_font.c src/ui_dialog.c src/scene_smithy.c
+HDR = assets/bg_smithy.h assets/hero_idle.h assets/portraits.h assets/font5x7.h
 
-ifeq ($(OS),Windows_NT)
-  TARGET  = smithy.exe
-  LDFLAGS = -L$(RAYLIB) -lraylib -lopengl32 -lgdi32 -lwinmm -mwindows \
-            -Wl,--gc-sections -s -flto
-else
-  TARGET  = smithy
-  LDFLAGS = -L$(RAYLIB) -lraylib -lm -lpthread -ldl \
-            -Wl,--gc-sections -s -flto
-endif
+iron_demo: $(SRC) $(HDR)
+	$(CC) $(CFLAGS) src/main.c -o $@ $(LDFLAGS)
+	strip $@
+	@ls -l $@ | awk '{printf "Binary size: %s bytes (budget 1474560)\n", $$5}'
 
-all: $(TARGET)
-
-# assets regenerate automatically when source art or maps change
-assets_smithy.h: ../art/smithy.png tools/png2c.py
-	python3 tools/png2c.py --colors 16 --tile 16 $< $@
-
-map_smithy.h: ../maps/smithy.tmx tools/tmx2c.py
-	python3 tools/tmx2c.py $< $@
-
-$(TARGET): smithy_demo.c assets_smithy.h map_smithy.h
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
-	@echo "--- size budget ---"
-	@stat -c "%n: %s bytes / 1474560 limit" $@
+assets:
+	python3 tools/png2c.py BG-01-SMITTY-A03.png assets/bg_smithy.h bg_smithy \
+	    --w 320 --h 240 --colors 32 --denoise 5
+	python3 tools/png2c.py HERO-BEST-07.png assets/hero_idle.h hero_idle \
+	    --h 184 --colors 16 --crop --alpha-cut 0.55
+	@mkdir -p build
+	python3 tools/make_portraits.py HERO-BEST-MOOD-01.png build/portraits.png
+	python3 tools/png2c.py build/portraits.png assets/portraits.h portraits --colors 16
+	python3 tools/font2c.py assets/font5x7.h
 
 clean:
-	rm -f $(TARGET) *.o
+	rm -f iron_demo
 
-.PHONY: all clean
+.PHONY: assets clean
