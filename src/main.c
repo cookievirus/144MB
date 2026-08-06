@@ -1,12 +1,15 @@
-/* IRON & INVESTMENT - Demo 1.0
+/* IRON & INVESTMENT - Demo 1.1
    Static forge backdrop + hero entering from the right.
 
    Unity build: this is the only translation unit. */
 
 #include "raylib.h"
 
+#include <stdio.h>
+
 #include "gfx.c"
 #include "ui.c"
+#include "rarity.c"
 #include "ui_font.c"
 #include "ui_menu.c"
 #include "ui_prompt.c"
@@ -27,10 +30,15 @@ static bool AcceptPressed(void)
 
 int main(void)
 {
-    SetTraceLogLevel(LOG_WARNING);
+    printf("IRON & INVESTMENT - Demo 1.1\n");
+    printf("Backbuffer %dx%d | Window %dx%d | Target %d FPS\n",
+           VSCREEN_W, VSCREEN_H, VSCREEN_W * WINDOW_SCALE, VSCREEN_H * WINDOW_SCALE, 60);
+    printf("Keys: R=replay M=menu Arrows=move Space/Enter=accept ESC=back F11=fullscreen\n");
+    fflush(stdout);
+    SetTraceLogLevel(LOG_INFO);
     SetConfigFlags(FLAG_VSYNC_HINT);
     InitWindow(VSCREEN_W * WINDOW_SCALE, VSCREEN_H * WINDOW_SCALE,
-               "IRON & INVESTMENT - Demo 1.0");
+               "IRON & INVESTMENT - Demo 1.1");
     SetTargetFPS(60);
     SetExitKey(KEY_NULL);   /* ESC is handled explicitly below */
 
@@ -38,6 +46,7 @@ int main(void)
     SetTextureFilter(backbuffer.texture, TEXTURE_FILTER_POINT);
 
     UiFontLoad();
+    RarityLoad();
 
     SceneSmithy scene;
     SceneSmithyInit(&scene);
@@ -76,6 +85,7 @@ int main(void)
     }
 
     SceneSmithyUnload(&scene);
+    RarityUnload();
     UiFontUnload();
     UnloadRenderTexture(backbuffer);
     CloseWindow();

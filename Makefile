@@ -1,10 +1,11 @@
-# IRON & INVESTMENT - Demo 1.0
+# IRON & INVESTMENT - Demo 1.1
 RAYLIB ?= /usr/local
 CC     ?= gcc
 CFLAGS  = -std=c11 -O2 -Wall -Wextra -DPLATFORM_DESKTOP_RGFW -I$(RAYLIB)/include -Isrc
 LDFLAGS = -L$(RAYLIB)/lib -lraylib -lm -lpthread -ldl -lrt -lX11
 
-SRC = src/main.c src/gfx.c src/ui_font.c src/ui_dialog.c src/scene_smithy.c
+SRC = src/main.c src/gfx.c src/rarity.c src/ui_font.c src/ui_dialog.c \
+      src/ui_menu.c src/ui_prompt.c src/scene_smithy.c
 HDR = assets/bg_smithy.h assets/hero_idle.h assets/portraits.h assets/font5x7.h
 
 iron_demo: $(SRC) $(HDR)

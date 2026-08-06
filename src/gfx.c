@@ -48,6 +48,8 @@ Texture2D GfxLoadTexture(const EmbeddedImage *src)
     tex = LoadTextureFromImage(img);
     SetTextureFilter(tex, TEXTURE_FILTER_POINT);
     UnloadImage(img);
+    TraceLog(LOG_INFO, "GFX: loaded %ux%u id=%u colors=%u key=%u",
+             src->w, src->h, tex.id, src->colors, src->color_key);
     return tex;
 }
 

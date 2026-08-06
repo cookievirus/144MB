@@ -38,6 +38,7 @@ void UiFontLoad(void)
     font_tex = LoadTextureFromImage(img);
     SetTextureFilter(font_tex, TEXTURE_FILTER_POINT);
     UnloadImage(img);
+    TraceLog(LOG_INFO, "FONT: atlas %dx%d %d glyphs", w, h, FONT_GLYPH_COUNT);
 }
 
 void UiFontUnload(void)

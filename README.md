@@ -1,8 +1,12 @@
-# IRON & INVESTMENT — Demo 1.0
+# IRON & INVESTMENT — Demo 1.1
 
 Static forge backdrop with the hero entering from the right on an eased slide.
 No VFX, no audio, no gameplay — this is the render + presentation spine that
 every later scene will sit on.
+
+**1.1** adds the quality-tier system: every item, gear piece and fitted tool
+carries one of eight tiers, shown as an 8×8 ball and a name colour throughout
+the menu.
 
 ## Build
 
@@ -37,7 +41,8 @@ single `AcceptPressed()` in `main.c`. Testing each key at its call site is how
 | `portraits` payload | 9,801 | 48×960 strip, 20 moods, one shared palette |
 | `portraits` palette | 48 | |
 | `font5x7` | 665 | 95 glyphs, 1 byte per glyph row |
-| **Asset total** | **31,749** | **2.15% of the 1,474,560 budget** |
+| `rarity` tables | 136 | 8 tiers: mask, colours, multipliers, names |
+| **Asset total** | **31,885** | **2.16% of the 1,474,560 budget** |
 
 The dialogue balloon itself costs nothing: panel, name plate, border and
 continue caret are all drawn from rectangles. A baked nine-slice panel would
@@ -342,11 +347,72 @@ point a word-wrap routine earns its ~150 bytes.
 after DEFLATE, so a full set is affordable — it is art that does not exist,
 not a budget problem.
 
+## Quality tiers
+
+Eight tiers, ordered `JUNK → COMMON → UNCOMMON → RARE → EPIC → LEGENDARY →
+MYTH`, with `CURSED` last. Cursed is *not* stronger than Myth; it is the most
+profitable and the most dangerous, which is a different axis. It sits at the
+end of the enum because a linear ladder is cheaper than a tier plus a flag,
+and nothing yet needs a Cursed Legendary. When something does, lift it out
+into a one-bit flag on `ItemDef` — about twenty bytes of code and no new data.
+
+Nothing here is a sprite. One 8×8 shape mask at 2 bits per pixel and one base
+colour per tier are baked into a 64×8 strip at boot; rim and highlight are
+derived from the base, so retuning the palette is a two-constant edit rather
+than an art pass.
+
+| | Bytes | |
+|---|---:|---|
+| `RARITY_MASK` | 16 | 8 rows × 2 bpp |
+| `RARITY_BASE` | 32 | one hue per tier |
+| `RARITY_MUL` | 8 | price multiplier, eighths |
+| `RARITY_LABEL` | 80 | fixed 10-char stride |
+| code (`-O2`, measured) | 976 | `RarityLoad` alone is 405 |
+| **total** | **1,132** | 0.08% of the budget |
+
+Embedding eight finished sprites instead would be roughly 600 bytes cheaper.
+The trade is that every colour change would then need a regenerated asset
+header, and the two collisions below were both found *after* the palette was
+first written.
+
+### Two collisions, both fixed by hue rather than by value
+
+**Junk vs Common.** The conventional pairing is grey and white. At eight
+pixels with a white specular highlight on both, they read as the same object.
+Junk is now rust `0x7A6248` and Common is clean steel `0xDCE0E8` — different
+in hue, value and temperature. It also says the right thing: broken gear in a
+smithy is rusted, not grey.
+
+**Cursed vs Common.** `RarityTint` lifts near-black tiers so they survive
+against `UI_SHADE`. Blending toward white did that correctly and landed
+Cursed on the same off-white as Common. The lift now scales all three
+channels by one factor until the brightest reaches 200, which raises the
+value without touching the hue: Cursed reads violet at `(163, 136, 200)`.
+
+The luma threshold is 80, not 72. At 72 Cursed sat three points under the
+line and any future nudge to its base colour would have silently flipped it
+to the unlifted branch. Myth, the next darkest tier, is at 97.
+
+### Names are tinted on every row, not only the selected one
+
+Dimming unselected rows is the usual way to show focus, and it would drain
+the colour out of eight rows to mark one. Scanning a list at a glance is the
+entire point of the ball, so focus is left to the selection bar and the caret,
+which do not compete with hue.
+
+### Value scaling
+
+`RarityScaleValue` is fixed point in eighths — `x0.25` for Junk through `x12`
+for Myth, with Cursed at `x3`. No floats and no libm. It is unused until the
+economy lands in Week 4; drop it for 36 bytes if the Week 7 audit is tight.
+
+
 ## Architecture
 
 ```
 src/main.c             window, backbuffer, loop       (unity build root)
 src/gfx.{h,c}          EmbeddedImage decode, pillarbox
+src/rarity.{h,c}       quality tiers: ball strip, tints, value scaling
 src/ui.{h,c}           notched panel, shared palette
 src/ui_font.{h,c}      glyph atlas, text drawing
 src/ui_dialog.{h,c}    balloon, portrait, reveal state machine

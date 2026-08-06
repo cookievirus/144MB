@@ -67,6 +67,7 @@ void UiDialogShow(UiDialog *d, const DialogLine *line)
     d->timer = 0.0f;
     d->blink = 0.0f;
     d->phase = (d->total > 0) ? DIALOG_REVEALING : DIALOG_WAITING;
+    TraceLog(LOG_INFO, "DIALOG: %s (%d chars, mood=%d)", line->speaker, d->total, line->mood);
 }
 
 void UiDialogHide(UiDialog *d)

@@ -25,6 +25,9 @@
 #define DETAIL_W 138          /* 23 columns at 6 px per glyph */
 #define BODY_Y   34
 #define ROW_H    11
+#define ROW_MARK_X  2         /* cursor caret                        */
+#define ROW_BALL_X  9         /* quality ball                        */
+#define ROW_TEXT_X 19         /* label, cleared of both              */
 #define LIST_ROWS 14
 
 #define HINT_Y  219
@@ -59,13 +62,27 @@ static const ItemDef *CatItem(int cat, int n)
     return NULL;
 }
 
-static void DrawRow(int x, int y, int w, const char *label, bool selected)
+/* Pass rarity < 0 for a row that has no quality tier, such as a destination.
+
+   Tiered rows carry their colour whether or not they are selected. Dimming
+   every unselected row is the usual trick for showing focus, but it would
+   drain the colour out of eight rows to mark one, and being scannable at a
+   glance is the entire point of the ball. Focus is left to the bar and the
+   caret, which do not compete with hue. */
+static void DrawRow(int x, int y, int w, const char *label, bool selected,
+                    int rarity)
 {
     if (selected) {
         DrawRectangle(x, y - 2, w, ROW_H, UI_SELECT);
-        UiDrawText(">", x + 2, y, UI_TEXT);
+        UiDrawText(">", x + ROW_MARK_X, y, UI_TEXT);
     }
-    UiDrawText(label, x + 10, y, selected ? UI_TEXT : UI_DIM);
+
+    if (rarity >= 0) {
+        RarityBall((Rarity)rarity, x + ROW_BALL_X, y - 1);
+        UiDrawText(label, x + ROW_TEXT_X, y, RarityTint((Rarity)rarity));
+    } else {
+        UiDrawText(label, x + ROW_TEXT_X, y, selected ? UI_TEXT : UI_DIM);
+    }
 }
 
 static void DrawQty(int right, int y, unsigned short qty, bool selected)
@@ -89,12 +106,19 @@ static void DrawPageChrome(const char *title)
     UiDrawText("ARROWS MOVE   SPACE/ENTER SELECT   ESC BACK", LIST_X, HINT_Y, UI_DIM);
 }
 
-static void DrawDetail(const char *heading, const char *sub, const char *body)
+static void DrawDetail(const char *heading, const char *sub, const char *body,
+                       int rarity)
 {
     DrawRectangle(DETAIL_X - 4, BODY_Y - 2, DETAIL_W + 8, HINT_Y - BODY_Y - 6, UI_SHADE);
     int y = BODY_Y + 4;
     UiDrawText(heading, DETAIL_X, y, UI_TEXT);
     y += 12;
+    if (rarity >= 0) {
+        RarityBall((Rarity)rarity, DETAIL_X, y - 1);
+        UiDrawText(RarityName((Rarity)rarity), DETAIL_X + 10, y,
+                   RarityTint((Rarity)rarity));
+        y += 12;
+    }
     if (sub != NULL) {
         UiDrawText(sub, DETAIL_X, y, UI_DIM);
         y += 12;
@@ -227,7 +251,7 @@ static void DrawInventory(const MenuFrame *f)
         const ItemDef *it = CatItem(f->tab, idx);
         const int y = BODY_Y + 20 + i * ROW_H;
         const bool on = (idx == f->cursor);
-        DrawRow(LIST_X, y, LIST_W, it->name, on);
+        DrawRow(LIST_X, y, LIST_W, it->name, on, (int)it->rarity);
         DrawQty(LIST_X + LIST_W - 4, y, it->qty, on);
     }
 
@@ -241,7 +265,7 @@ static void DrawInventory(const MenuFrame *f)
         do { d[c++] = (char)('0' + v % 10); v = (unsigned short)(v / 10); } while (v && c < 5);
         while (c > 0) held[k++] = d[--c];
         held[k] = '\0';
-        DrawDetail(it->name, held, it->desc);
+        DrawDetail(it->name, held, it->desc, (int)it->rarity);
     }
 }
 
@@ -258,12 +282,21 @@ static void DrawEquipment(const MenuFrame *f)
 
         UiPanel(x, y, 74, 24, on ? UI_SELECT : UI_SHADE, UI_EDGE);
         UiDrawText(EQUIPMENT[i].slot, x + 4, y + 4, on ? UI_TEXT : UI_DIM);
-        UiDrawText(EQUIPMENT[i].fitted ? "FITTED" : "EMPTY",
-                   x + 4, y + 13, on ? UI_TEXT : UI_DIM);
+
+        /* The tier belongs to the fitted tool, not to the slot, so the ball
+           sits on the status line and an empty slot shows none. */
+        if (EQUIPMENT[i].fitted != NULL) {
+            RarityBall((Rarity)EQUIPMENT[i].rarity, x + 4, y + 12);
+            UiDrawText("FITTED", x + 14, y + 13,
+                       RarityTint((Rarity)EQUIPMENT[i].rarity));
+        } else {
+            UiDrawText("EMPTY", x + 4, y + 13, on ? UI_TEXT : UI_DIM);
+        }
     }
 
     const EquipSlot *e = &EQUIPMENT[f->cursor];
-    DrawDetail(e->slot, e->fitted ? e->fitted : "- empty -", e->desc);
+    DrawDetail(e->slot, e->fitted ? e->fitted : "- empty -", e->desc,
+               e->fitted ? (int)e->rarity : -1);
 }
 
 static void DrawMap(const MenuFrame *f)
@@ -272,11 +305,11 @@ static void DrawMap(const MenuFrame *f)
 
     for (int i = 0; i < DEST_COUNT; i++) {
         const int y = BODY_Y + 6 + i * 14;
-        DrawRow(LIST_X, y, LIST_W, DESTINATIONS[i].name, i == f->cursor);
+        DrawRow(LIST_X, y, LIST_W, DESTINATIONS[i].name, i == f->cursor, -1);
     }
 
     const Destination *d = &DESTINATIONS[f->cursor];
-    DrawDetail(d->name, d->reachable ? "REACHABLE" : "CLOSED", d->desc);
+    DrawDetail(d->name, d->reachable ? "REACHABLE" : "CLOSED", d->desc, -1);
     UiDrawText("TRAVEL NOT IMPLEMENTED", LIST_X, HINT_Y - 20, UI_DIM);
 }
 

@@ -111,6 +111,8 @@ void SceneSmithyReset(SceneSmithy *s)
     UiPromptClose(&s->prompt);
     s->quit_requested = false;
     UiDialogHide(&s->dialog);
+    TraceLog(LOG_INFO, "SMITHY: reset -> HOLD (hold=%.2fs enter=%.2fs)",
+             HOLD_SECONDS, ENTER_SECONDS);
 }
 
 void SceneSmithyUpdate(SceneSmithy *s, float dt)
@@ -122,6 +124,7 @@ void SceneSmithyUpdate(SceneSmithy *s, float dt)
         if (s->clock >= HOLD_SECONDS) {
             s->clock -= HOLD_SECONDS;
             s->phase = SMITHY_ENTER;
+            TraceLog(LOG_INFO, "SMITHY: HOLD -> ENTER");
         }
         break;
 
@@ -133,7 +136,10 @@ void SceneSmithyUpdate(SceneSmithy *s, float dt)
         }
         const float k = EaseOutCubic(t);
         s->hero_x = HERO_START_X + (HERO_REST_X - HERO_START_X) * k;
-        if (s->phase == SMITHY_SETTLED) PlayScript(s, SMITHY_SCRIPT, SMITHY_SCRIPT_LEN);
+        if (s->phase == SMITHY_SETTLED) {
+            TraceLog(LOG_INFO, "SMITHY: ENTER -> SETTLED hero_x=%.0f", HERO_REST_X);
+            PlayScript(s, SMITHY_SCRIPT, SMITHY_SCRIPT_LEN);
+        }
     } break;
 
     case SMITHY_SETTLED:
@@ -191,9 +197,12 @@ void SceneSmithyAdvance(SceneSmithy *s)
                from. */
             UiPromptOpen(&s->prompt, "PAUSED", SYSTEM_OPTIONS, 3, SYS_CANCEL);
             s->prompt.note = WriteSave(s) ? "Progress saved." : "Save failed.";
+            TraceLog(LOG_INFO, "SMITHY: save -> %s",
+                     WriteSave(s) ? "ok" : "FAILED");
             break;
         case SYS_QUIT:
             s->quit_requested = true;
+            TraceLog(LOG_INFO, "SMITHY: quit requested");
             break;
         default:
             break;
@@ -224,6 +233,7 @@ void SceneSmithyAdvance(SceneSmithy *s)
             UiDialogShow(&s->dialog, &s->script[s->script_at]);
         } else if (s->phase == SMITHY_SETTLED) {
             s->phase = SMITHY_DONE;
+            TraceLog(LOG_INFO, "SMITHY: script complete -> DONE (%d lines)", s->script_len);
         }
     }
 }
