@@ -26,6 +26,15 @@ from PIL import Image, ImageFilter
 def load_rgba(path: Path, key_white: bool, white_cut: int):
     """Return (rgb float array HxWx3, alpha float array HxW in 0..1)."""
     im = Image.open(path)
+
+    # Palette PNGs carry transparency in a tRNS chunk, not in a channel, and
+    # an indexed export from Aseprite is mode "P". Testing the mode string
+    # alone silently dropped that alpha and baked the background into the
+    # sprite as a solid block. Normalise anything that has transparency at
+    # all before looking at channels.
+    if im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info:
+        im = im.convert("RGBA")
+
     if im.mode == "RGBA":
         a = np.asarray(im, dtype=np.float64)
         return a[:, :, :3], a[:, :, 3] / 255.0

@@ -14,25 +14,15 @@
 #define CELL_GAP  2
 #define ROOT_PAD  8
 
-#define PAGE_X   8
-#define PAGE_Y   8
-#define PAGE_W 304
-#define PAGE_H 224
-
-#define LIST_X   14
-#define LIST_W  148
-#define DETAIL_X 168
-#define DETAIL_W 138          /* 23 columns at 6 px per glyph */
-#define BODY_Y   34
-#define ROW_H    11
-#define ROW_MARK_X  2         /* cursor caret                        */
-#define ROW_BALL_X  9         /* quality ball                        */
-#define ROW_TEXT_X 19         /* label, cleared of both              */
-#define LIST_ROWS 14
-
-#define HINT_Y  219
-
 static const char *const ROOT_LABELS[4] = { "TALK", "INVENTORY", "EQUIPMENT", "MAP" };
+
+#define HINT_LIST   "ARROWS MOVE   SPACE/ENTER SELECT   ESC BACK"
+#define HINT_SORT   "R RARITY  T QTY  A NAME   ESC BACK"
+#define HINT_TRAVEL "ARROWS MOVE   SPACE/ENTER TRAVEL   ESC BACK"
+
+UI_HINT_FITS(HINT_LIST);
+UI_HINT_FITS(HINT_SORT);
+UI_HINT_FITS(HINT_TRAVEL);
 
 /* ---- helpers ----------------------------------------------------------- */
 
@@ -43,23 +33,36 @@ static int Clamp(int v, int lo, int hi)
     return (v < lo) ? lo : ((v > hi) ? hi : v);
 }
 
+/* Items are stored in one flat table and filtered on the fly rather than
+   duplicated into per-category arrays: the walk is a few dozen comparisons on
+   a key press, and the alternative costs pointer tables in .rodata forever.
+
+   The filtered category is flattened into the shared sort scratch and ordered
+   there, so the cursor, the rows and the detail pane all read the same list.
+   Rebuilt on every call rather than cached: at 24 rows the walk is cheaper
+   than the state needed to know when the cache went stale, and the held
+   counts change under it every time the player buys something. */
+static int BuildCat(const UiMenu *m, int cat)
+{
+    SortRow *rows = SortScratch();
+    int n = 0;
+    for (int i = 0; i < ITEM_COUNT; i++) {
+        if (ITEMS[i].cat != cat) continue;
+        rows[n].name = ITEMS[i].name;
+        rows[n].qty = (unsigned short)InvHeld(i);
+        rows[n].rarity = ITEMS[i].rarity;
+        rows[n].ref = (unsigned char)i;
+        n++;
+    }
+    SortApply(&m->sort, rows, n);
+    return n;
+}
+
 static int CatCount(int cat)
 {
     int n = 0;
     for (int i = 0; i < ITEM_COUNT; i++) if (ITEMS[i].cat == cat) n++;
     return n;
-}
-
-/* Items are stored in one flat table and filtered on the fly rather than
-   duplicated into per-category arrays: the walk is a few dozen comparisons on
-   a key press, and the alternative costs pointer tables in .rodata forever. */
-static const ItemDef *CatItem(int cat, int n)
-{
-    for (int i = 0; i < ITEM_COUNT; i++) {
-        if (ITEMS[i].cat != cat) continue;
-        if (n-- == 0) return &ITEMS[i];
-    }
-    return NULL;
 }
 
 /* Pass rarity < 0 for a row that has no quality tier, such as a destination.
@@ -69,63 +72,9 @@ static const ItemDef *CatItem(int cat, int n)
    drain the colour out of eight rows to mark one, and being scannable at a
    glance is the entire point of the ball. Focus is left to the bar and the
    caret, which do not compete with hue. */
-static void DrawRow(int x, int y, int w, const char *label, bool selected,
-                    int rarity)
-{
-    if (selected) {
-        DrawRectangle(x, y - 2, w, ROW_H, UI_SELECT);
-        UiDrawText(">", x + ROW_MARK_X, y, UI_TEXT);
-    }
 
-    if (rarity >= 0) {
-        RarityBall((Rarity)rarity, x + ROW_BALL_X, y - 1);
-        UiDrawText(label, x + ROW_TEXT_X, y, RarityTint((Rarity)rarity));
-    } else {
-        UiDrawText(label, x + ROW_TEXT_X, y, selected ? UI_TEXT : UI_DIM);
-    }
-}
 
-static void DrawQty(int right, int y, unsigned short qty, bool selected)
-{
-    char buf[8];
-    int n = 0;
-    unsigned short v = qty;
-    do { buf[n++] = (char)('0' + v % 10); v = (unsigned short)(v / 10); } while (v && n < 6);
-    char out[8];
-    for (int i = 0; i < n; i++) out[i] = buf[n - 1 - i];
-    out[n] = '\0';
-    UiDrawText(out, right - n * FONT_CELL_W, y, selected ? UI_TEXT : UI_DIM);
-}
 
-static void DrawPageChrome(const char *title)
-{
-    UiPanel(PAGE_X, PAGE_Y, PAGE_W, PAGE_H, UI_FILL, UI_EDGE);
-    UiDrawText(title, LIST_X, PAGE_Y + 7, UI_TEXT);
-    UiRule(LIST_X, PAGE_Y + 19, PAGE_W - 12, UI_EDGE);
-    UiRule(LIST_X, HINT_Y - 5, PAGE_W - 12, UI_EDGE);
-    UiDrawText("ARROWS MOVE   SPACE/ENTER SELECT   ESC BACK", LIST_X, HINT_Y, UI_DIM);
-}
-
-static void DrawDetail(const char *heading, const char *sub, const char *body,
-                       int rarity)
-{
-    DrawRectangle(DETAIL_X - 4, BODY_Y - 2, DETAIL_W + 8, HINT_Y - BODY_Y - 6, UI_SHADE);
-    int y = BODY_Y + 4;
-    UiDrawText(heading, DETAIL_X, y, UI_TEXT);
-    y += 12;
-    if (rarity >= 0) {
-        RarityBall((Rarity)rarity, DETAIL_X, y - 1);
-        UiDrawText(RarityName((Rarity)rarity), DETAIL_X + 10, y,
-                   RarityTint((Rarity)rarity));
-        y += 12;
-    }
-    if (sub != NULL) {
-        UiDrawText(sub, DETAIL_X, y, UI_DIM);
-        y += 12;
-    }
-    UiRule(DETAIL_X, y, DETAIL_W, UI_EDGE);
-    UiDrawText(body, DETAIL_X, y + 7, UI_TEXT);
-}
 
 /* ---- lifecycle --------------------------------------------------------- */
 
@@ -139,7 +88,13 @@ static void Push(UiMenu *m, MenuScreen screen)
     f->scroll = 0;
 }
 
-void UiMenuInit(UiMenu *m) { m->depth = 0; }
+void UiMenuInit(UiMenu *m) { m->depth = 0; SortReset(&m->sort); }
+
+bool UiMenuTakesSort(const UiMenu *m)
+{
+    return m->depth > 0 &&
+           m->stack[m->depth - 1].screen == (unsigned char)SCREEN_INVENTORY;
+}
 bool UiMenuIsOpen(const UiMenu *m) { return m->depth > 0; }
 void UiMenuClose(UiMenu *m) { m->depth = 0; }
 
@@ -206,10 +161,19 @@ MenuCommand UiMenuInput(UiMenu *m, int dx, int dy, bool accept, bool back)
 
     default:
         if (dy) f->cursor = (signed char)Clamp(f->cursor + dy, 0, DEST_COUNT - 1);
+        if (accept) {
+            const Destination *d = &DESTINATIONS[f->cursor];
+            /* The menu reports where the player wants to go and closes. It
+               does not load a room: the scene owns world state, exactly as
+               TALK already works. */
+            if (d->reachable && d->scene != SCENE_NONE) {
+                UiMenuClose(m);
+                return (MenuCommand)(MENU_CMD_TRAVEL_BASE + d->scene);
+            }
+        }
         break;
     }
 
-    (void)accept;
     return MENU_CMD_NONE;
 }
 
@@ -231,9 +195,14 @@ static void DrawRoot(const MenuFrame *f)
     }
 }
 
-static void DrawInventory(const MenuFrame *f)
+static void DrawInventory(const UiMenu *m, const MenuFrame *f)
 {
-    DrawPageChrome("INVENTORY");
+    UiPageChrome("INVENTORY", HINT_SORT);
+
+    /* The active ordering is shown on the title line. A sort the player
+       cannot see is a sort they will assume is broken the first time two
+       Common items sit next to each other. */
+    UiDrawText(SortLabel(&m->sort), SORT_TAG_X, PAGE_Y + 7, UI_DIM);
 
     int tx = LIST_X;
     for (int c = 0; c < CAT_COUNT; c++) {
@@ -244,34 +213,33 @@ static void DrawInventory(const MenuFrame *f)
         tx += w + 3;
     }
 
-    const int n = CatCount(f->tab);
+    const int n = BuildCat(m, f->tab);
+    const SortRow *rows = SortScratch();
+
     for (int i = 0; i < LIST_ROWS; i++) {
         const int idx = f->scroll + i;
         if (idx >= n) break;
-        const ItemDef *it = CatItem(f->tab, idx);
         const int y = BODY_Y + 20 + i * ROW_H;
         const bool on = (idx == f->cursor);
-        DrawRow(LIST_X, y, LIST_W, it->name, on, (int)it->rarity);
-        DrawQty(LIST_X + LIST_W - 4, y, it->qty, on);
+        UiRow(LIST_X, y, LIST_W, rows[idx].name, on, (int)rows[idx].rarity,
+              ROW_QTY_RESERVE);
+        UiNumber(LIST_X + LIST_W - 4, y, (int)rows[idx].qty,
+                 on ? UI_TEXT : UI_DIM);
     }
 
     if (n > 0) {
-        const ItemDef *it = CatItem(f->tab, f->cursor);
-        char held[20] = "HELD: ";
-        int k = 6;
-        unsigned short v = it->qty;
-        char d[6];
-        int c = 0;
-        do { d[c++] = (char)('0' + v % 10); v = (unsigned short)(v / 10); } while (v && c < 5);
-        while (c > 0) held[k++] = d[--c];
-        held[k] = '\0';
-        DrawDetail(it->name, held, it->desc, (int)it->rarity);
+        const ItemDef *it = &ITEMS[rows[f->cursor].ref];
+        UiDetail(it->name, NULL, it->desc, (int)it->rarity);
+        UiRule(DETAIL_X, DETAIL_STAT_Y - 6, DETAIL_W, UI_EDGE);
+        UiDrawText("HELD", DETAIL_X, DETAIL_STAT_Y, UI_DIM);
+        UiNumber(DETAIL_X + DETAIL_W, DETAIL_STAT_Y,
+                 (int)rows[f->cursor].qty, UI_TEXT);
     }
 }
 
 static void DrawEquipment(const MenuFrame *f)
 {
-    DrawPageChrome("EQUIPMENT");
+    UiPageChrome("EQUIPMENT", HINT_LIST);
 
     for (int i = 0; i < EQUIP_COUNT; i++) {
         const int col = i % 2;
@@ -295,22 +263,23 @@ static void DrawEquipment(const MenuFrame *f)
     }
 
     const EquipSlot *e = &EQUIPMENT[f->cursor];
-    DrawDetail(e->slot, e->fitted ? e->fitted : "- empty -", e->desc,
+    UiDetail(e->slot, e->fitted ? e->fitted : "- empty -", e->desc,
                e->fitted ? (int)e->rarity : -1);
 }
 
 static void DrawMap(const MenuFrame *f)
 {
-    DrawPageChrome("MAP");
+    UiPageChrome("MAP", HINT_TRAVEL);
 
     for (int i = 0; i < DEST_COUNT; i++) {
         const int y = BODY_Y + 6 + i * 14;
-        DrawRow(LIST_X, y, LIST_W, DESTINATIONS[i].name, i == f->cursor, -1);
+        UiRow(LIST_X, y, LIST_W, DESTINATIONS[i].name, i == f->cursor, -1, 0);
     }
 
     const Destination *d = &DESTINATIONS[f->cursor];
-    DrawDetail(d->name, d->reachable ? "REACHABLE" : "CLOSED", d->desc, -1);
-    UiDrawText("TRAVEL NOT IMPLEMENTED", LIST_X, HINT_Y - 20, UI_DIM);
+    const char *sub = (d->scene == SCENE_NONE) ? "NOT BUILT YET"
+                    : (d->reachable ? "REACHABLE" : "CLOSED");
+    UiDetail(d->name, sub, d->desc, -1);
 }
 
 void UiMenuDraw(const UiMenu *m)
@@ -323,7 +292,7 @@ void UiMenuDraw(const UiMenu *m)
 
     switch (f->screen) {
     case SCREEN_ROOT:      DrawRoot(f); break;
-    case SCREEN_INVENTORY: DrawInventory(f); break;
+    case SCREEN_INVENTORY: DrawInventory(m, f); break;
     case SCREEN_EQUIPMENT: DrawEquipment(f); break;
     default:               DrawMap(f); break;
     }

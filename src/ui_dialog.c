@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "../assets/portraits.h"
+#include "../assets/portraits_merchant.h"
 
 /* Layout, in virtual-screen pixels. The balloon hugs the bottom of the frame
    and the name plate overhangs its top-left corner, as in the concept. */
@@ -25,7 +26,13 @@
 #define TEXT_Y   176
 #define TEXT_MAX_COLS 39   /* (BOX_X + BOX_W - 6 - TEXT_X) / FONT_CELL_W */
 
-#define CARET_X  160
+/* The continue marker is a blinking chevron plus a steady key name. The
+   chevron alone says "there is more" but not how to get it, and a player who
+   has not been told will sit through the reveal waiting for it to advance by
+   itself. The label does not blink: text that flashes is read as a warning. */
+#define CONTINUE_KEY  "SPACE"
+#define CARET_W    7
+#define CARET_GAP  6
 #define CARET_Y  222
 #define CARET_BLINK 0.45f
 
@@ -44,7 +51,8 @@ static int NextWordEnd(const char *s, int from)
 
 void UiDialogInit(UiDialog *d)
 {
-    d->portraits = GfxLoadTexture(&portraits);
+    d->portraits[PORTRAIT_HERO] = GfxLoadTexture(&portraits);
+    d->portraits[PORTRAIT_MERCHANT] = GfxLoadTexture(&portraits_merchant);
     d->phase = DIALOG_HIDDEN;
     d->reveal = REVEAL_WORD;
     d->line = NULL;
@@ -56,7 +64,7 @@ void UiDialogInit(UiDialog *d)
 
 void UiDialogUnload(UiDialog *d)
 {
-    UnloadTexture(d->portraits);
+    for (int i = 0; i < PORTRAIT_SET_COUNT; i++) UnloadTexture(d->portraits[i]);
 }
 
 void UiDialogShow(UiDialog *d, const DialogLine *line)
@@ -136,19 +144,27 @@ void UiDialogDraw(const UiDialog *d)
             0.0f, (float)(d->line->mood * PORT_SIZE),
             (float)PORT_SIZE, (float)PORT_SIZE
         };
-        DrawTextureRec(d->portraits, src, (Vector2){ PORT_X, PORT_Y }, WHITE);
+        const int set = (d->line->set < PORTRAIT_SET_COUNT)
+                            ? d->line->set : PORTRAIT_HERO;
+        DrawTextureRec(d->portraits[set], src,
+                       (Vector2){ PORT_X, PORT_Y }, WHITE);
     }
 
     UiDrawTextN(d->line->text, d->shown, TEXT_X, TEXT_Y, UI_TEXT);
 
-    /* Continue caret: a blinking chevron, drawn as rows so it stays on the
-       pixel grid instead of being rasterised as a triangle. */
+    /* Continue marker, centred on the balloon as one group. Drawn as rows so
+       the chevron stays on the pixel grid instead of being rasterised as a
+       triangle. */
     if (d->phase == DIALOG_WAITING) {
+        const int group = CARET_W + CARET_GAP + UiTextWidth(CONTINUE_KEY);
+        const int x0 = BOX_X + (BOX_W - group) / 2;
+
         const int frame = (int)(d->blink / CARET_BLINK);
         if ((frame & 1) == 0) {
             for (int i = 0; i < 4; i++) {
-                DrawRectangle(CARET_X - 3 + i, CARET_Y + i, 7 - i * 2, 1, UI_TEXT);
+                DrawRectangle(x0 + i, CARET_Y + i, CARET_W - i * 2, 1, UI_TEXT);
             }
         }
+        UiDrawText(CONTINUE_KEY, x0 + CARET_W + CARET_GAP, CARET_Y - 2, UI_DIM);
     }
 }
