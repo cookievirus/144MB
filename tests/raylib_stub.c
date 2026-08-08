@@ -66,3 +66,8 @@ unsigned char *LoadFileData(const char *f, int *size)
     return p;
 }
 void UnloadFileData(unsigned char *d) { free(d); }
+
+/* 1.9: the hearth draws additively. Nothing is rasterised here, so these only
+   have to exist. */
+void BeginBlendMode(int mode) { (void)mode; }
+void EndBlendMode(void) { }

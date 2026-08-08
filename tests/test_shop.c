@@ -10,10 +10,15 @@
 #include "sort.c"
 #include "inventory.c"
 #include "shop.c"
+#include "vfx.c"
+#include "qte.c"
+#include "forge.c"
 #include "ui_menu.c"
 #include "ui_prompt.c"
 #include "ui_dialog.c"
 #include "scene.c"
+
+#include "drive.h"
 
 
 static void step(Scene *s, int n) { for (int i=0;i<n;i++) SceneUpdate(s, 1.0f/60.0f); }
@@ -97,9 +102,12 @@ int main(void)
 
     /* --- travel --------------------------------------------------------- */
     printf("\nscene %d -> travel\n", sc.id);
-    UiMenuOpen(&sc.menu);
-    UiMenuInput(&sc.menu, 0, 1, false, false);       /* root: down to MAP row */
-    UiMenuInput(&sc.menu, 1, 0, false, false);
+    /* 1.7: the root grid is six rows in a room with a feature, laid out two
+       across - TALK/FORGE, INVENTORY/EQUIPMENT, MAP/END DAY - so MAP is two
+       rows down in the left column rather than one down and one across. */
+    UiMenuOpen(&sc.menu, (int)SCENES[sc.id].feature);
+    UiMenuInput(&sc.menu, 0, 1, false, false);
+    UiMenuInput(&sc.menu, 0, 1, false, false);
     MenuCommand cmd = UiMenuInput(&sc.menu, 0, 0, true, false);
     CHECK(cmd == MENU_CMD_NONE, "root accept pushes a screen");
     UiMenuInput(&sc.menu, 0, 1, false, false);       /* MAP: Market Row */
@@ -123,9 +131,9 @@ int main(void)
     CHECK(sc.shop.stock[0] == SHOP_STOCK[0].stock, "restocked on entry");
 
     /* Closed destinations must not travel. */
-    UiMenuOpen(&sc.menu);
+    UiMenuOpen(&sc.menu, (int)SCENES[sc.id].feature);
     UiMenuInput(&sc.menu, 0, 1, false, false);
-    UiMenuInput(&sc.menu, 1, 0, false, false);
+    UiMenuInput(&sc.menu, 0, 1, false, false);
     UiMenuInput(&sc.menu, 0, 0, true, false);
     UiMenuInput(&sc.menu, 0, 1, false, false);
     UiMenuInput(&sc.menu, 0, 1, false, false);       /* Adventurers Guild */
@@ -141,7 +149,7 @@ int main(void)
     CHECK(sc.dialog.phase != DIALOG_HIDDEN, "and JACK asks");
     UiDialogHide(&sc.dialog);
     UiPromptClose(&sc.prompt);
-    UiMenuOpen(&sc.menu);
+    UiMenuOpen(&sc.menu, (int)SCENES[sc.id].feature);
     SceneBack(&sc); CHECK(!UiMenuIsOpen(&sc.menu), "ESC closes the menu");
     UiDialogHide(&sc.dialog);
     SceneBack(&sc); CHECK(UiPromptIsOpen(&sc.prompt), "ESC raises the prompt");

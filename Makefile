@@ -1,11 +1,11 @@
-# IRON & INVESTMENT - Demo 1.4
+# IRON & INVESTMENT - Demo 1.9.3
 RAYLIB ?= /usr/local
 CC     ?= gcc
 CFLAGS  = -std=c11 -O2 -Wall -Wextra -DPLATFORM_DESKTOP_RGFW -I$(RAYLIB)/include -Isrc
 LDFLAGS = -L$(RAYLIB)/lib -lraylib -lm -lpthread -ldl -lrt -lX11
 
 SRC = src/main.c src/gfx.c src/rarity.c src/ui_font.c src/ui.c \
-      src/sort.c src/title.c src/inventory.c src/shop.c src/ui_dialog.c \
+      src/sort.c src/title.c src/inventory.c src/shop.c src/vfx.c src/qte.c src/forge.c src/ui_dialog.c \
       src/ui_menu.c src/ui_prompt.c src/scene.c
 HDR = assets/bg_smithy.h assets/bg_shop.h assets/hero_idle.h \
       assets/merchant_idle.h assets/portraits.h \
@@ -45,7 +45,7 @@ check:
 	python3 tools/check_asset.py mood resource/MERCHANT-MOOD-01.png
 
 # Headless logic tests under ASan + UBSan. No window, no GPU.
-TESTS = test_shop test_entrance test_sort test_title
+TESTS = test_shop test_entrance test_sort test_title test_forge test_qte test_day test_vfx
 test:
 	@mkdir -p build
 	@for t in $(TESTS); do \

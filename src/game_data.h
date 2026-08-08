@@ -40,6 +40,7 @@ typedef enum ItemId {
     ITM_FROST_BILLET, ITM_DRAGON_SCALE, ITM_STARFALL,    ITM_VOID_CINDER,
     ITM_SHORTSWORD,   ITM_FALCHION,    ITM_LONGSWORD,    ITM_BUCKLER,
     ITM_CHAIN_COIF,   ITM_WARHAMMER,   ITM_WIDOWMAKER,
+    ITM_DAGGER,       ITM_ASH_STAFF,   ITM_CUIRASS,
     ITM_SMALL_POTION, ITM_STAMINA,     ITM_HARD_BREAD,   ITM_SALTED_MEAT,
     ITM_WHETSTONE,
     ITM_COUNT
@@ -68,6 +69,12 @@ static const ItemDef ITEMS[] = {
 { "Chain Coif", "Two weeks of rings.\nPriced accordingly,\nand still nobody\nthinks it is enough.", CAT_GEAR, RARITY_UNCOMMON, 1 },
 { "Warhammer", "Not elegant. Solves\nthe specific problem\nof armour, and\nnothing else.", CAT_GEAR, RARITY_RARE, 1 },
 { "Widowmaker", "It sells for a\nfortune. Ask who\nowned it before, then\nask where he is.", CAT_GEAR, RARITY_CURSED, 1 },
+
+/* 1.5: the three pieces the forge can make that nothing else in the game
+   sells. Seeded at zero - the only way to hold one is to have made it. */
+{ "Iron Dagger", "Quick to make and\nquicker to lose. Every\nparty buys three.", CAT_GEAR, RARITY_COMMON, 0 },
+{ "Ash Staff", "Bone core, silver\ncollar, ash shaft. The\nguild pays for the\ncollar and nothing\nelse.", CAT_GEAR, RARITY_RARE, 0 },
+{ "Iron Cuirass", "Forty lumps of ore and\na week of hammering.\nPriced like it, and\nstill argued over.", CAT_GEAR, RARITY_UNCOMMON, 0 },
 
 { "Small Potion", "Closes what a blade\nopens. Mostly.", CAT_ITEM, RARITY_UNCOMMON, 6 },
 { "Stamina Draught", "Bitter. Buys an hour\nat the anvil that the\nbody did not want to\ngive.", CAT_ITEM, RARITY_UNCOMMON, 2 },
@@ -154,6 +161,120 @@ static const StockRow SHOP_STOCK[] = {
     { ITM_CHAIN_COIF,    1, 90 },
 };
 #define STOCK_COUNT ((int)(sizeof(SHOP_STOCK) / sizeof(SHOP_STOCK[0])))
+
+/* ---- what a room lets you do -------------------------------------------
+
+   1.7 folded SceneDef's has_shop and has_forge into one field. Two booleans
+   said a room could have a counter and an anvil at once, which no room does
+   and which the main menu could not have drawn anyway: the root grid has one
+   slot for what the room is for. A byte that names the single feature is
+   smaller, and it is what the menu actually needs to label a row.
+
+   The label is what appears in the menu, so it is here beside the other
+   content tables rather than in scene.h - ui_menu.c must reach it and does
+   not include scene.h. */
+
+typedef enum RoomFeature {
+    ROOM_FEATURE_NONE = 0,
+    ROOM_FEATURE_TRADE,
+    ROOM_FEATURE_FORGE,
+    ROOM_FEATURE_PARTY,
+    ROOM_FEATURE_COUNT
+} RoomFeature;
+
+/* NULL for NONE: a room with no feature contributes no row, and a label that
+   would never be drawn is a label that would silently rot. */
+static const char *const ROOM_FEATURE_LABELS[ROOM_FEATURE_COUNT] = {
+    NULL, "BUY/SELL", "FORGE", "PARTY"
+};
+
+/* PARTY has no room yet. The Guild needs a backdrop, and the .gitignore in
+   this repo is explicit that a placeholder must never reach a submission - so
+   the room waits on art, not on code. When it arrives it is one byte in its
+   SceneDef and one case in the scene's feature switch; the label and the menu
+   row already work. */
+
+/* ---- forge recipes -----------------------------------------------------
+
+   A recipe is eight bytes: what it makes, which shelf of the forge menu it
+   sits on, and up to three ingredients as {ItemId, count} pairs.
+
+   The pairs are two bytes rather than one packed byte. Nibble-packing an
+   ingredient - item id in the high nibble, count in the low - is the obvious
+   saving and it does not survive contact with this table: there are more than
+   fifteen items and the Cuirass wants forty ore. Four ingredient bytes per
+   recipe would buy 24 bytes across the whole table and cap the design at
+   fifteen materials in fifteens, which is the wrong trade this early.
+
+   Everything else the menu needs - name, tier, description, sell price - is
+   already in ITEMS and is reached through `out`. A recipe that repeated any
+   of it would cost pointers in .rodata to say what one byte already says,
+   which is the same call StockRow makes. */
+
+typedef enum ForgeCat {
+    FORGE_WEAPON = 0,
+    FORGE_ARMOR,
+    FORGE_CAT_COUNT
+} ForgeCat;
+
+static const char *const FORGE_CAT_NAMES[FORGE_CAT_COUNT] = { "WEAPONS", "ARMOR" };
+
+/* Singular, for the detail pane's sub-line. */
+static const char *const FORGE_CAT_ONE[FORGE_CAT_COUNT] = { "WEAPON", "ARMOR" };
+
+#define RECIPE_SLOTS 3
+#define RECIPE_NONE  0xFF
+
+typedef struct RecipeMat {
+    unsigned char item;      /* ItemId, or RECIPE_NONE for an unused slot */
+    unsigned char qty;
+} RecipeMat;
+
+typedef struct RecipeDef {
+    unsigned char out;       /* ItemId produced on a clean heat   */
+    unsigned char cat;       /* ForgeCat                          */
+    /* 1.6: what a flawless heat produces instead, or RECIPE_NONE for a recipe
+       with no better version of itself. It is a whole ItemId rather than a
+       tier bump because held items are counts, not instances - the pack knows
+       it holds four of item 12, and there is nowhere to record that one of
+       them came out better than the others. Promoting the output is the only
+       way to say "this one is finer" in a model built on counts, and it costs
+       one byte per recipe against the several hundred that per-instance
+       quality would cost in the save blob alone. */
+    unsigned char fine;
+    RecipeMat mat[RECIPE_SLOTS];
+} RecipeDef;                 /* 9 bytes */
+
+#define MAT_END { RECIPE_NONE, 0 }
+
+static const RecipeDef RECIPES[] = {
+/*               output          shelf         fine            ingredients */
+{ ITM_SHORTSWORD, FORGE_WEAPON, ITM_LONGSWORD, { { ITM_IRON_ORE,  6 }, { ITM_COAL,          4 }, { ITM_LEATHER_STRIP, 1 } } },
+{ ITM_DAGGER,     FORGE_WEAPON, RECIPE_NONE,   { { ITM_IRON_ORE,  2 }, { ITM_LEATHER_STRIP, 1 }, MAT_END                  } },
+{ ITM_ASH_STAFF,  FORGE_WEAPON, RECIPE_NONE,   { { ITM_BEAST_BONE,2 }, { ITM_SILVER_INGOT,  1 }, { ITM_LEATHER_STRIP, 1 } } },
+{ ITM_CUIRASS,    FORGE_ARMOR,  RECIPE_NONE,   { { ITM_IRON_ORE, 40 }, { ITM_COAL,         20 }, { ITM_LEATHER_STRIP, 3 } } },
+{ ITM_CHAIN_COIF, FORGE_ARMOR,  RECIPE_NONE,   { { ITM_IRON_ORE,  7 }, { ITM_COAL,          4 }, MAT_END                  } },
+{ ITM_BUCKLER,    FORGE_ARMOR,  RECIPE_NONE,   { { ITM_IRON_ORE,  4 }, { ITM_OAK_CHARCOAL,  2 }, { ITM_LEATHER_STRIP, 2 } } },
+};
+#define RECIPE_COUNT ((int)(sizeof(RECIPES) / sizeof(RECIPES[0])))
+
+/* Only the Shortsword has a finer version of itself today, because Steel
+   Longsword was already in ITEMS and the other five have no counterpart that
+   exists. The mechanism is one byte per recipe and one branch; filling the
+   column in is a content task - five names, five descriptions, five tiers -
+   and until it is done a flawless heat on a dagger is worth exactly the same
+   as a scrappy one. That is a real gap and it is in the manual checklist. */
+
+/* Which recipes the player knows is one 32-bit word in the save blob, so the
+   table cannot outgrow it without the mask growing too. */
+_Static_assert(RECIPE_COUNT <= 32, "RECIPES has outgrown the 32-bit known mask");
+
+/* Every recipe the demo ships with is known from the start. The mask is not
+   therefore pointless: it is what lets a recipe be *added* later without the
+   Blueprints menu claiming the player has always had it, and it is already in
+   the save blob, so teaching a recipe in Week 3 costs one bit rather than a
+   save version. */
+#define RECIPES_KNOWN_AT_START 0x3Fu
 
 /* The trader buys back at half. A single rate rather than a per-item spread:
    the interesting decision in this game is what to forge, not which shop to

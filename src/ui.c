@@ -91,6 +91,12 @@ void UiMoney(int right, int y, int value, Color tint)
     UiNumber(right - FONT_CELL_W * 2, y, value, tint);
 }
 
+void UiCount(int right, int y, int value, Color tint)
+{
+    UiDrawText("EA", right - FONT_CELL_W * 2, y, tint);
+    UiNumber(right - FONT_CELL_W * 3, y, value, tint);
+}
+
 void UiDetail(const char *heading, const char *sub, const char *body,
               int rarity)
 {

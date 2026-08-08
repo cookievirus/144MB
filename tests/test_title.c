@@ -10,10 +10,15 @@
 #include "sort.c"
 #include "inventory.c"
 #include "shop.c"
+#include "vfx.c"
+#include "qte.c"
+#include "forge.c"
 #include "ui_menu.c"
 #include "ui_prompt.c"
 #include "ui_dialog.c"
 #include "scene.c"
+
+#include "drive.h"
 #include "title.c"
 
 void StubClearSave(void);
@@ -104,8 +109,12 @@ int main(void)
     CHECK(!ShopIsOpen(&sh.shop), "and the counter waits for it");
 
     finish(&sh);
-    CHECK(ShopIsOpen(&sh.shop), "the welcome opens the counter by itself");
-    printf("\nwelcome -> counter opened\n");
+    /* 1.7 took the self-opening counter away: the welcome is a welcome, and
+       the way in is the menu, everywhere, in every room. */
+    CHECK(!ShopIsOpen(&sh.shop), "the welcome no longer opens it by itself");
+    REQUIRE(DriveFeature(&sh), "the shop offers a BUY/SELL row");
+    CHECK(ShopIsOpen(&sh.shop), "the menu row opens the counter");
+    printf("\nmenu -> counter opened\n");
 
     /* Set up some state that "anything else" must not throw away. */
     ShopInput(&sh.shop, 1, 0, false);          /* SELL tab */
@@ -136,7 +145,7 @@ int main(void)
     SceneBack(&sh);
     finish(&sh);
     CHECK(UiPromptIsOpen(&sh.prompt), "asked again");
-    UiPromptMove(&sh.prompt, 1);
+    UiPromptMove(&sh.prompt, 1, 0);
     SceneAdvance(&sh);
     CHECK(!ShopIsOpen(&sh.shop), "NO leaves the counter shut");
     CHECK(sh.dialog.phase != DIALOG_HIDDEN, "with a parting line");

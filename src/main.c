@@ -1,6 +1,6 @@
-/* IRON & INVESTMENT - Demo 1.4
+/* IRON & INVESTMENT - see src/version.h for the number
    A title screen, two rooms driven from one scene table, travel between them,
-   and a trader who buys and sells.
+   a trader who buys and sells, and an anvil that turns ore into gear.
 
    Unity build: this is the only translation unit. */
 
@@ -15,6 +15,9 @@
 #include "sort.c"
 #include "inventory.c"
 #include "shop.c"
+#include "vfx.c"
+#include "qte.c"
+#include "forge.c"
 #include "ui_menu.c"
 #include "ui_prompt.c"
 #include "ui_dialog.c"
@@ -44,17 +47,22 @@ static bool AcceptPressed(void)
 
 int main(void)
 {
-    printf("IRON & INVESTMENT - Demo 1.4\n");
+    printf("IRON & INVESTMENT - Demo " GAME_VERSION "\n");
     printf("Backbuffer %dx%d | Window %dx%d | Target %d FPS\n",
            VSCREEN_W, VSCREEN_H, VSCREEN_W * WINDOW_SCALE, VSCREEN_H * WINDOW_SCALE, 60);
     printf("Keys: M=menu Arrows=move Space/Enter=accept ESC=back F5=replay F11=fullscreen\n");
     printf("Sort (inventory / shop): R=rarity T=quantity A=name, same key flips\n");
     printf("Travel: M -> MAP -> Market Row\n");
+    printf("Everything is under M: TALK, the room's own feature,\n");
+    printf("INVENTORY, EQUIPMENT, MAP, END DAY\n");
+    printf("Forging: hit the lit key before the bar under it runs out\n");
+    printf("The date sits top right and never leaves\n");
+    printf("The hearth burns and the shop lamps flicker; nothing to press\n");
     fflush(stdout);
     SetTraceLogLevel(LOG_INFO);
     SetConfigFlags(FLAG_VSYNC_HINT);
     InitWindow(VSCREEN_W * WINDOW_SCALE, VSCREEN_H * WINDOW_SCALE,
-               "IRON & INVESTMENT - Demo 1.4");
+               "IRON & INVESTMENT - Demo 1.9");
     SetTargetFPS(60);
     SetExitKey(KEY_NULL);   /* ESC is handled explicitly below */
 

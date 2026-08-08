@@ -1,5 +1,5 @@
 @echo off
-REM IRON ^& INVESTMENT - Demo 1.4 build (MinGW-w64 / gcc)
+REM IRON ^& INVESTMENT - Demo 1.9.3 build (MinGW-w64 / gcc)
 REM Adjust RAYLIB to point at your static raylib build.
 set RAYLIB=C:\raylib\raylib
 

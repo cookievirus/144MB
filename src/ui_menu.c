@@ -7,14 +7,56 @@
 #define ROOT_X   8
 #define ROOT_Y   8
 #define ROOT_W 142
-#define ROOT_H  54
 #define ROOT_COLS 2
 #define CELL_W   64
 #define CELL_H   16
 #define CELL_GAP  2
 #define ROOT_PAD  8
 
-static const char *const ROOT_LABELS[4] = { "TALK", "INVENTORY", "EQUIPMENT", "MAP" };
+/* The root grid is no longer a fixed 2x2. It carries the room's own feature
+   when the room has one, so it is five rows or six, and its height follows.
+   Every label fits CELL_W at 6 px per glyph with the 5 px inset: the longest
+   is INVENTORY at 9 characters = 59 px. */
+#define ROOT_MAX_ROWS 6
+#define ROOT_HEIGHT(rows) (ROOT_PAD * 2 + (rows) * CELL_H + ((rows) - 1) * CELL_GAP)
+
+typedef enum RootRow {
+    ROOT_TALK = 0,
+    ROOT_FEATURE,
+    ROOT_INVENTORY,
+    ROOT_EQUIPMENT,
+    ROOT_MAP,
+    ROOT_END_DAY,
+    ROOT_ROW_COUNT
+} RootRow;
+
+static const char *const ROOT_LABELS[ROOT_ROW_COUNT] = {
+    "TALK", NULL, "INVENTORY", "EQUIPMENT", "MAP", "END DAY"
+};
+
+_Static_assert(ROOT_ROW_COUNT <= ROOT_MAX_ROWS, "root grid has outgrown its panel");
+
+/* Which rows this room shows, in order. The feature sits second rather than
+   first: TALK is in the same place in every room, and a menu whose first
+   entry moves depending on where you are standing is a menu you have to read
+   before you can use it. */
+static int RootBuild(const UiMenu *m, unsigned char *out)
+{
+    int n = 0;
+    out[n++] = ROOT_TALK;
+    if (m->feature != ROOM_FEATURE_NONE) out[n++] = ROOT_FEATURE;
+    out[n++] = ROOT_INVENTORY;
+    out[n++] = ROOT_EQUIPMENT;
+    out[n++] = ROOT_MAP;
+    out[n++] = ROOT_END_DAY;
+    return n;
+}
+
+static const char *RootLabel(const UiMenu *m, int row)
+{
+    if (row == ROOT_FEATURE) return ROOM_FEATURE_LABELS[m->feature];
+    return ROOT_LABELS[row];
+}
 
 #define HINT_LIST   "ARROWS MOVE   SPACE/ENTER SELECT   ESC BACK"
 #define HINT_SORT   "R RARITY  T QTY  A NAME   ESC BACK"
@@ -88,7 +130,12 @@ static void Push(UiMenu *m, MenuScreen screen)
     f->scroll = 0;
 }
 
-void UiMenuInit(UiMenu *m) { m->depth = 0; SortReset(&m->sort); }
+void UiMenuInit(UiMenu *m)
+{
+    m->depth = 0;
+    m->feature = ROOM_FEATURE_NONE;
+    SortReset(&m->sort);
+}
 
 bool UiMenuTakesSort(const UiMenu *m)
 {
@@ -98,9 +145,11 @@ bool UiMenuTakesSort(const UiMenu *m)
 bool UiMenuIsOpen(const UiMenu *m) { return m->depth > 0; }
 void UiMenuClose(UiMenu *m) { m->depth = 0; }
 
-void UiMenuOpen(UiMenu *m)
+void UiMenuOpen(UiMenu *m, int feature)
 {
     m->depth = 0;
+    m->feature = (unsigned char)((feature >= 0 && feature < ROOM_FEATURE_COUNT)
+                                 ? feature : ROOM_FEATURE_NONE);
     Push(m, SCREEN_ROOT);
 }
 
@@ -119,18 +168,31 @@ MenuCommand UiMenuInput(UiMenu *m, int dx, int dy, bool accept, bool back)
 
     switch (f->screen) {
     case SCREEN_ROOT: {
+        unsigned char rows[ROOT_MAX_ROWS];
+        const int n = RootBuild(m, rows);
+        const int grid_rows = (n + ROOT_COLS - 1) / ROOT_COLS;
+
         int col = f->cursor % ROOT_COLS;
         int row = f->cursor / ROOT_COLS;
         if (dx) col = Wrap(col + dx, ROOT_COLS);
-        if (dy) row = Wrap(row + dy, 2);
-        f->cursor = (signed char)(row * ROOT_COLS + col);
+        if (dy) row = Wrap(row + dy, grid_rows);
+        /* The last grid row can be short. Landing on the empty half of it
+           would put the caret on nothing, so the cursor clamps to the last
+           real entry instead - the same rule the inventory list follows when
+           a category runs out. */
+        f->cursor = (signed char)Clamp(row * ROOT_COLS + col, 0, n - 1);
 
         if (accept) {
-            switch (f->cursor) {
-            case 0: UiMenuClose(m); return MENU_CMD_TALK;
-            case 1: Push(m, SCREEN_INVENTORY); break;
-            case 2: Push(m, SCREEN_EQUIPMENT); break;
-            default: Push(m, SCREEN_MAP); break;
+            switch (rows[f->cursor]) {
+            case ROOT_TALK:      UiMenuClose(m); return MENU_CMD_TALK;
+            case ROOT_FEATURE:   UiMenuClose(m); return MENU_CMD_FEATURE;
+            case ROOT_INVENTORY: Push(m, SCREEN_INVENTORY); break;
+            case ROOT_EQUIPMENT: Push(m, SCREEN_EQUIPMENT); break;
+            case ROOT_MAP:       Push(m, SCREEN_MAP); break;
+            /* Not closed here. The scene puts a confirmation up over the
+               menu, and a player who says no should find the menu where they
+               left it rather than back in the room. */
+            default:             return MENU_CMD_END_DAY;
             }
         }
     } break;
@@ -179,11 +241,15 @@ MenuCommand UiMenuInput(UiMenu *m, int dx, int dy, bool accept, bool back)
 
 /* ---- drawing ----------------------------------------------------------- */
 
-static void DrawRoot(const MenuFrame *f)
+static void DrawRoot(const UiMenu *m, const MenuFrame *f)
 {
-    UiPanel(ROOT_X, ROOT_Y, ROOT_W, ROOT_H, UI_FILL, UI_EDGE);
+    unsigned char rows[ROOT_MAX_ROWS];
+    const int n = RootBuild(m, rows);
+    const int grid_rows = (n + ROOT_COLS - 1) / ROOT_COLS;
 
-    for (int i = 0; i < 4; i++) {
+    UiPanel(ROOT_X, ROOT_Y, ROOT_W, ROOT_HEIGHT(grid_rows), UI_FILL, UI_EDGE);
+
+    for (int i = 0; i < n; i++) {
         const int col = i % ROOT_COLS;
         const int row = i / ROOT_COLS;
         const int x = ROOT_X + ROOT_PAD + col * (CELL_W + CELL_GAP);
@@ -191,7 +257,7 @@ static void DrawRoot(const MenuFrame *f)
         const bool on = (i == f->cursor);
 
         if (on) UiPanel(x, y, CELL_W, CELL_H, UI_SELECT, UI_EDGE);
-        UiDrawText(ROOT_LABELS[i], x + 5, y + 4, on ? UI_TEXT : UI_DIM);
+        UiDrawText(RootLabel(m, rows[i]), x + 5, y + 4, on ? UI_TEXT : UI_DIM);
     }
 }
 
@@ -222,9 +288,9 @@ static void DrawInventory(const UiMenu *m, const MenuFrame *f)
         const int y = BODY_Y + 20 + i * ROW_H;
         const bool on = (idx == f->cursor);
         UiRow(LIST_X, y, LIST_W, rows[idx].name, on, (int)rows[idx].rarity,
-              ROW_QTY_RESERVE);
-        UiNumber(LIST_X + LIST_W - 4, y, (int)rows[idx].qty,
-                 on ? UI_TEXT : UI_DIM);
+              ROW_COUNT_RESERVE);
+        UiCount(LIST_X + LIST_W - 4, y, (int)rows[idx].qty,
+                on ? UI_TEXT : UI_DIM);
     }
 
     if (n > 0) {
@@ -232,8 +298,8 @@ static void DrawInventory(const UiMenu *m, const MenuFrame *f)
         UiDetail(it->name, NULL, it->desc, (int)it->rarity);
         UiRule(DETAIL_X, DETAIL_STAT_Y - 6, DETAIL_W, UI_EDGE);
         UiDrawText("HELD", DETAIL_X, DETAIL_STAT_Y, UI_DIM);
-        UiNumber(DETAIL_X + DETAIL_W, DETAIL_STAT_Y,
-                 (int)rows[f->cursor].qty, UI_TEXT);
+        UiCount(DETAIL_X + DETAIL_W, DETAIL_STAT_Y,
+                (int)rows[f->cursor].qty, UI_TEXT);
     }
 }
 
@@ -291,7 +357,7 @@ void UiMenuDraw(const UiMenu *m)
     const MenuFrame *f = &m->stack[m->depth - 1];
 
     switch (f->screen) {
-    case SCREEN_ROOT:      DrawRoot(f); break;
+    case SCREEN_ROOT:      DrawRoot(m, f); break;
     case SCREEN_INVENTORY: DrawInventory(m, f); break;
     case SCREEN_EQUIPMENT: DrawEquipment(f); break;
     default:               DrawMap(f); break;

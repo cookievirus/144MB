@@ -1,8 +1,86 @@
-# IRON & INVESTMENT — Demo 1.4
+# IRON & INVESTMENT — Demo 1.9.3
 
-Two rooms, travel between them, and a trader who buys and sells. The forge
-still lights and the hero still walks on; **M → MAP → Market Row** now takes
-him somewhere.
+Two rooms, a trader, an anvil, and a day that ends when you say so. One key
+opens everything: **M**. Both rooms are now lit.
+
+**1.9.3** made the lamps read as light. The glow was the wrong *shape* — the
+falloff only ran vertically, so the sides were cut square — and at a 4 px
+radius it was a bright dot on a lamp rather than a lamp throwing light.
+
+**1.9.2** re-measured one lamp and moved it a pixel. It exists as its own
+number because the build stamp is on screen now, and two builds that differ
+and agree on their stamp make the stamp worse than useless.
+
+**1.9.1** takes the hearth and makes it a room property:
+
+- **Market Row's lamps flicker** — a wall lantern and two hanging lamps,
+  steadier and yellower than a forge, each on its own phase.
+- **Lights are a table, not a field.** `SceneDef` carries up to four, and a
+  lamp is a hearth that throws no sparks.
+- **The build stamp sits bottom-right**, from a single `GAME_VERSION`.
+
+**1.9** is two small things, one of which is the first moving thing in the
+game that is not a person:
+
+- **The hearth burns.** Embers rise off the coal bed and the light over the
+  fire breathes. Zero asset bytes — rectangles, an integer hash and no libm.
+- **The date badge got room to breathe**, 64×12 → 82×13.
+
+**1.8** is furniture, and one bug that furniture was hiding:
+
+- **The date badge is a panel**, framed like everything else, instead of a
+  bare fill that vanished into the shop's lit shelves.
+- **The prompt box measures itself.** It was a fixed 152 px, and 1.7's
+  `The forge goes cold until morning.` drew straight out through both walls.
+  The box now grows to its widest line and clamps at the screen.
+- **The pause box is a column**: SAVE, CANCEL, QUIT, reading in the order the
+  actions escalate, with the safe one under the cursor.
+
+**1.7** is about there being one way in:
+
+- **Every feature is a row in the main menu.** The counter no longer opens
+  itself when JACK finishes talking, and the anvil no longer answers the
+  accept key. **M** gives you TALK, the room's own feature, INVENTORY,
+  EQUIPMENT, MAP and END DAY.
+- **The feature row follows the room.** FORGE in the smithy, BUY/SELL at
+  Market Row, PARTY at the Guild when the Guild exists. One byte on
+  `SceneDef` says which.
+- **A hint in the corner**, because taking away the two things that opened
+  themselves left a room that does nothing when you press anything.
+- **Days.** The date sits top right and never leaves. END DAY asks before it
+  commits, then fades, turns the world over — restocking the shelves — and
+  comes back on the morning after.
+- **Numbers carry their unit.** Coin reads `120 G`, counts read `4 EA`.
+
+**1.6** is the forging itself:
+
+- **A sequential QTE.** One key lit at a time — the four arrows and SPACE —
+  each with a window that tightens as the sequence goes on. Length comes from
+  the tier of the thing being made: five steps for a dagger, seven for a
+  staff.
+- **The ore is spent when the heat starts, not when it ends.** A ruined heat
+  costs exactly what a good one costs. That is the whole stake.
+- **Three verdicts.** Flawless promotes the output where the recipe has a
+  better version of itself — a clean Iron Shortsword comes off the anvil as a
+  Steel Longsword. Within tolerance pays the ordinary item. Past tolerance
+  spoils the metal.
+- **ESC does nothing while the metal is hot.** The only place in the game
+  where the back key is refused outright.
+- **No score, no combo, no numbers.** Which key is live, how much sequence is
+  left, and how long this step has. Nothing else.
+
+**1.5** gave BEST his own counter:
+
+- **The forge makes things.** Six recipes over two shelves, WEAPONS and
+  ARMOR, each one a row that names what it wants and how much of it you have.
+- **A recipe you cannot afford stays on the shelf.** It greys, loses its
+  quality ball and says which ingredient is short. It does not disappear.
+- **BLUEPRINTS is the same list, read-only** — every recipe you know, both
+  shelves at once, and an accept key that deliberately does nothing.
+- **Three new things to make.** Iron Dagger, Ash Staff and Iron Cuirass are
+  seeded at zero: the only way to hold one is to have made it.
+- **Save version 3.** The blob gains the known-recipe mask and three held
+  counts. A v2 save is refused.
 
 **1.4** puts a front door on the game and makes the shop a conversation:
 
@@ -16,6 +94,533 @@ him somewhere.
 - **Prices carry their unit** — `POTION 33 G`, not `POTION 33`.
 - **The continue caret names its key.** A blinking chevron says there is more;
   it does not say how to get it.
+
+### The glow was a lens, not a circle
+
+`VfxBlob` shaded each row by its height and then kept that alpha **flat across
+the row's width**. So the top and bottom faded and the left and right ends
+were cut off square. It also used a quadratic approximation for the row width
+instead of the ellipse, which is narrower at mid-height than a circle.
+
+Both are invisible at a 4 px radius, which is why the hearth got away with it.
+At the radius a lamp halo actually wants, it reads as a bar.
+
+**Doing it per pixel** would be a `DrawRectangle` per pixel — about 500 for
+one lamp — to compute a falloff the blend can accumulate for free.
+**Stacking N flat ellipses** gives a genuinely radial profile in N calls: at
+any distance the accumulated alpha is the sum of the layers that still reach
+it. Layer alphas are weighted N, N−1, … 1 rather than equal, which makes that
+sum quadratic in distance rather than linear — a bright core with a long thin
+skirt instead of a flat disc with an edge.
+
+The measured horizontal profile of a lamp, centre outward:
+
+```
+37  27  27  19  12  12   7   3   3   1   1   0
+```
+
+Row widths now come from the true ellipse, via a nine-iteration binary-search
+integer square root. No libm, and obviously correct at a glance, which the
+bit-by-bit integer sqrt is not.
+
+This replaced the hearth's two-blob core-plus-halo as well, so its `rx`/`ry`
+are the old *outer* pair — the reach, not the core.
+
+### 0.74 was a swing the tuning file could describe and the eye could not see
+
+The lamp flicker floored at 0.74, which sounds gentle and is. But the peak a
+lamp adds is around 40 of 255, so floor 0.74 moved the light by **three parts
+in a hundred** against the backdrop. Correct in its own units and invisible in
+the ones that matter.
+
+Floor 0.62 now, and it visibly breathes onto the panelling around the lantern.
+The lesson generalises: an effect's parameters are relative to the effect, and
+the thing to check is always the change against what is behind it.
+
+The halo breathes in **size** as well as brightness — ±1.5 px at a lamp's
+radius. A light that only changes alpha reads as a lamp on a dimmer; one whose
+reach moves with it reads as something burning.
+
+### A lamp is a hearth that throws no sparks
+
+1.9 put one `FireDef` on `SceneDef`, which was right for exactly as long as
+one room had one fire. The shop has three lights, so it became a table of four
+`LightDef` with a `kind` byte — and the thing worth noting is what *did not*
+need a second code path. A lamp is the same bloom in the same blob routine
+with the same noise; `embers == 0` already meant "no particles", so the lamp
+case fell out of the data rather than being written.
+
+What the `kind` byte buys is tuning, and it earns its place there. A forge is
+being fed air: fast, deep, floor 0.58. An oil wick is not: 1.9 Hz and 4.3 Hz,
+floor 0.74. One tuning for both makes either the wick roar or the forge sulk,
+and `test_vfx.c` asserts the lamp swings less than the hearth rather than
+trusting anyone to eyeball it.
+
+**Each light gets its own phase from its index.** Three lamps on one clock
+breathe in unison, and that single tell gives the whole effect away as one
+timer. The test checks all three differ on essentially every frame.
+
+**No lamp sparks.** Partly because a wick does not, and partly because a lamp
+throwing embers in a shop full of potions is a lamp about to end the shop.
+There is one ember pool per room, owned by the first light that asks — a
+second sparking fire in one room would silently get none, which is a
+limitation and not a bug: no room has two forges, and an array of pools sized
+for a case that does not exist is the more expensive mistake.
+
+### Finding the lamps was the hard part
+
+The threshold pass that worked on the smithy found the wrong things in the
+shop. A doorway full of daylight and a skylight are far brighter than a wick,
+so the top blobs were sunlight at (231,129) and (177,203) and the lamps did
+not make the list at all.
+
+Ranking by **warmth over luminance** inside the two regions the mock circled
+found them. The general lesson, which is now in the GDD: *the brightest thing
+in a room is usually a window.*
+
+**And then the method was still too cheap.** 1.9.1 took the single brightest
+warm cell in each window — one sample, landing wherever the resample happened
+to put a highlight. 1.9.2 takes the warm-weighted centroid of the whole core:
+
+| | 1.9.1 | measured centroid | core |
+|---|---|---|---|
+| wall lantern | (13, 63) | (12.8, 62.6) | x 4..21, y 53..73 |
+| hanging lamp A | (224, 29) | (224.0, 29.0) | x 217..231, y 26..32 |
+| hanging lamp B | (253, 28) | (252.2, 29.4) | x 248..255, y 27..33 |
+
+Two of the three were already right, which is the useful part of the result:
+the cheap method was not so much wrong as unverifiable, and being right twice
+by luck is not a method.
+
+The pin in `test_vfx.c` is now **within a pixel** rather than exact. The
+measurement is a centroid over a resampled image and lands on a fraction;
+asserting the integer it happens to round to would fail under a different
+resampler while telling nobody anything. A pixel is the tolerance that
+separates "the glow is on the lamp" from "the glow is on the shelf", which is
+the thing worth failing over.
+
+**The radii are still a judgement call.** The lantern's warm core measures 18
+px across, but most of that is brass the artist already painted lit, so the
+glow is `rx 5` on the flame rather than on the fixture. I cannot check that
+from here — if the lantern reads small on screen, `rx 6, ry 7` in `scene.c` is
+the one-line change.
+
+### The version number was in four places
+
+Three comments and a README heading, none of which can be wrong in a way that
+matters. The moment it went on screen that changed — a stale stamp is a
+submission claiming to be a build it is not — so it lives in `src/version.h`
+and the banner, the corner and everything else read it from there.
+
+It is never suppressed. A screenshot or a stream of a contest build should say
+which build it is without anyone asking, and the moment it *can* be hidden is
+the moment the one screenshot that mattered was taken with it hidden. A
+`_Static_assert` keeps it clear of the menu hint at the other end of the row.
+
+### Not drawing fire
+
+The backdrop already draws fire, and it draws it better than anything this
+module could afford. What it cannot do is move, and a room whose only moving
+thing is the player reads as a menu with scenery behind it.
+
+So the effect is deliberately not a fire. It is two cheap moving things laid
+over art that is already right: fourteen embers rising off the coal bed, and a
+warm bloom over the mouth whose brightness breathes. The alternative — a
+six-frame flame loop at the measured 32×22 — is roughly 4 KB of asset for one
+room, and it would still visibly loop.
+
+**Additive, not alpha.** Alpha over the smithy's dark beams greys them and
+over the shop's lit shelves washes them out. A fire adds light to what is
+behind it; nothing else in the game does, and it is the one place
+`BeginBlendMode` earns its call.
+
+**The numbers came off the art, not off a screenshot.** A threshold pass over
+`resource/BG-01-SMITTY-A03.png` at 320×240, connected-component labelled to
+separate the hearth from the lantern and the window, puts the lit mouth at
+**x 216..247, y 110..131**. The `FireDef` in `scene.c` centres on (232,121)
+because of that measurement, and `test_vfx.c` asserts the glow stays inside
+those bounds — so a re-export at a different crop fails a test instead of
+silently moving the fire onto the wall.
+
+### Flicker is not a sine
+
+`sinf` would drag libm's trigonometry in for one visual effect, and it is the
+wrong shape anyway: a sine flickers like a pulse, and the eye reads a pulse as
+a bug. The flicker is smoothstepped value noise over an integer hash, sampled
+at 5.3 Hz and 14.7 Hz and summed. The rates are deliberately not multiples of
+each other, so the sum does not return to where it started on any interval a
+player would sit through.
+
+It floors at 0.58 rather than 0: this is a lit forge, and a fire that can go
+fully dark looks like a lamp with a loose connection.
+
+### The generator is private, and that is load-bearing
+
+`vfx.c` has its own hash and does not touch the one in `qte.c`. Sharing would
+make a forge sequence depend on how many frames the player spent looking at
+the fire, and `test_qte.c` asserts exact sequences under a seed — so the
+symptom would have been a test suite that passes alone and fails in the full
+run. `test_vfx.c` pins it directly: seed the QTE, run 137 frames of fire, seed
+again, and check the sequence is identical.
+
+Embers do not share a generator either. Each derives its spawn from a hash of
+its own seed, bumped on respawn, so there is no shared mutable state to
+perturb and nothing to reset.
+
+### A ceiling that clips is a particle that blinks out
+
+`rise` started as a hard clip: an ember above the line was skipped. The 30-
+second trace in `test_vfx.c` caught it — a slow, long-lived ember climbs 39 px
+against a 30 px ceiling, so it was still at a third of its brightness when it
+crossed the line and simply stopped existing. A particle that blinks out
+mid-air is far more noticeable than one that was never drawn.
+
+It is a fade envelope now. The `continue` only fires where the alpha would
+already be zero, and the test asserts the overshoot exists — `lo < top` — so
+nobody can quietly turn it back into a clip.
+
+The embers are also scattered up the column at start rather than all born on
+the coals, or the first second in a room is one visible pulse.
+
+### Sixty-four pixels was correct and looked mean
+
+1.8 sized the date badge to the tightest box that would hold five digits.
+Correct, and it read as a label crammed into its own frame rather than a plate
+with something on it. The height is capped by the title-line assertion and
+nothing else, so it now takes all of it; the width was free, so the padding
+and the gap between `DAY` and the number both roughly doubled. 64×12 → 82×13.
+
+Nothing about the constraint changed — the badge still has to clear
+`PAGE_Y + 7`, and the `_Static_assert` still says so.
+
+### A box that trusts its callers is a box that will overflow
+
+`UiPrompt` shipped in 1.1 with `PANEL_W 152` and every caller trusted to keep
+its title, its note and its buttons inside that. It held for six versions.
+1.7 added a 34-character note — 204 px — and it drew out through both walls.
+
+There *was* a test for it. `test_sort.c` measured prompt titles, notes and
+button rows against 152, and it passed, because it measured **a hand-written
+list of the strings somebody had remembered to add to it**. The new string was
+not on the list. That is the failure mode of every enumerated check: it covers
+what you thought of, and the bug is always the thing you did not.
+
+So 1.8 changed the shape rather than adding a sixth string to the list. The
+box takes the widest of its title, its note and its button block, adds the
+padding, and clamps between a floor — so a two-word question is not a stamp —
+and the screen width. The test that replaces the list asserts the *invariant*:
+build every prompt the game actually raises, measure the box it produces, and
+check the contents are inside it. Then one more with a note longer than
+anything shipped, to prove the box follows the string rather than the reverse.
+
+`UI_PROMPT_FITS` catches the remaining case at compile time — a note too wide
+even for a full-screen box. Same bargain as `UI_HINT_FITS`: the budget is a
+constant, the check is at the definition, and the error names the string.
+
+**What this cost:** `UiPromptWidth` is 323 bytes of measuring that a constant
+did for free. That is the price of the class of bug, not of this instance of
+it, and it is the right trade at 0.02% of the disk.
+
+### A row is not a list
+
+The pause box was `CANCEL SAVE QUIT` in a row, with CANCEL first because the
+safe answer belongs under the cursor. Reading order and cursor position are
+different jobs and a row made them fight: the eye reads left to right, so
+CANCEL-first says the cancel is the point of the box, when the box exists to
+offer a save and a quit.
+
+Stacked, both jobs are satisfied. The list reads in the order the actions
+escalate — SAVE, CANCEL, QUIT — and CANCEL is still under the cursor at rest
+by being in the middle. Nothing destructive is one keypress from open.
+
+The layout is per-prompt, not global. `NOT YET / END DAY` stays a row, because
+a row invites the eye to scan a spectrum and that is exactly right for a
+question with two answers and wrong for a menu of unrelated verbs.
+
+`UiPromptMove` now takes both axes and uses the one its layout runs along.
+That means a nudge sideways in the pause box cannot silently move the player
+off CANCEL onto QUIT, and no caller has to know which layout is on screen to
+steer it.
+
+### Twelve pixels
+
+The date badge was a bare `DrawRectangle`, which read fine over the smithy's
+dark beams and disappeared into the shop's lit shelves. Every other piece of
+standing furniture in the game is a `UiPanel`; this was the one thing floating.
+
+A bordered panel needs eleven rows — border, pad, seven of glyph, pad, border
+— and 1.7's argument for the badge never needing to be suppressed was that it
+fitted in the 8 px margin above `PAGE_Y`. Those cannot both be true.
+
+What actually has to hold is narrower than "above the frame": the badge must
+clear the **title line** at `PAGE_Y + 7`, because that is where the shop draws
+its purse and the two would otherwise overlap exactly. Twelve pixels at y=1
+ends at 13, and the title line starts at 15. So the badge sits *on* the page
+frame's top edge rather than above it, which is what the mock shows anyway,
+and a `_Static_assert` holds the two pixels of clearance.
+
+Fixed width rather than measured, so the box does not twitch a glyph wider on
+the day the counter reaches ten.
+
+### One entry point, and what it cost
+
+1.4 opened the counter as soon as the welcome finished, on the reasoning that
+trading is why the player travelled there. 1.5 gave the anvil the same
+courtesy from the accept key. Both were locally right and together they taught
+the player that *some* things are in the menu and *some* things happen on
+their own — which is the exact confusion a single entry point exists to
+remove. A player who has learned that rooms open their own features has not
+learned where the menu is, and the Guild will not open its roster by itself.
+
+So both are gone. `AFTER_OPEN_SHOP` is gone with them, TALK is only talk, and
+the accept key on an idle room does nothing at all.
+
+That last sentence is a usability hole, and it is why the **M  MENU** hint
+exists. It shows only when the room is idle: with a panel up the player has
+already found the menu, and with dialogue up the balloon is what the bottom of
+the screen is for.
+
+### `has_shop` and `has_forge` became one byte
+
+Two booleans claimed a room could have a counter and an anvil at once. No room
+does, and the root grid could not have drawn it if one did — there is a single
+slot for what the room is for. `SceneDef.feature` is a `RoomFeature`, the menu
+reads its label out of one table, and the scene owns the switch that turns it
+into an open counter or an anvil prompt.
+
+`ROOM_FEATURE_PARTY` is in the enum and has a label. It has no room, because
+the Guild needs a backdrop and this repo's `.gitignore` is explicit that a
+placeholder must never reach a submission — so it waits on art, not on code.
+When the art lands it is one byte in a `SceneDef` and one case in the switch.
+
+### The root grid is no longer 2×2
+
+It is five rows or six depending on whether the room has a feature, laid out
+two across, and the panel height follows. The feature sits *second* rather
+than first: TALK is in the same place in every room, and a menu whose first
+entry moves depending on where you are standing is a menu you have to read
+before you can use it.
+
+A five-row grid has a hole in the bottom-right. The cursor clamps to the last
+real entry rather than parking on nothing — the same rule the inventory list
+already followed when a category ran short.
+
+### The day is a fade with a flag
+
+Travel already faded to black and swapped the room. A day boundary fades to
+black and keeps it, so `fade_kind` says what the black is hiding and the two
+transitions cannot drift apart in length or curve — which is most of why they
+read as the same kind of event.
+
+Everything that happens overnight happens at full black, in one function.
+Today that is the date and the shop restocking; it is where the drama engine's
+overnight events will go, and having a single place for "the world changed
+while you were not watching" is the point of having a day boundary at all.
+
+END DAY asks first, with **NOT YET** as the default. A confirmation whose
+default is yes is a slower way of not asking. Saying no leaves the menu open
+exactly where it was, rather than dumping the player back in the room.
+
+### The date badge never has to be suppressed
+
+It lives in the eight-pixel margin above the page frame — `PAGE_Y` is 8 and
+the badge is 8 tall — so it clears every full-screen panel in the game without
+a single special case. That is the whole reason it can honestly be described
+as always on screen.
+
+### `4` is not `4 EA`
+
+The shop puts a price and a stock count in the same column position on
+different tabs. `UiMoney` already labelled the price side in 1.2; 1.7 labels
+the other. A bare number there is ambiguous in whichever direction the player
+is not currently thinking, and at 320×240 there is no room for a column
+heading to disambiguate it.
+
+Counts that are one half of a ratio stay bare. The forge's `34/40` ingredient
+rows do not become `34 EA/40 EA`, which is not clearer, only longer.
+
+`ROW_COUNT_RESERVE` is budgeted for `65535 EA` and not for the four digits
+that turn up in play, because `held[]` is `unsigned short` and that is what it
+can hold. Sizing the column for the observed maximum is the same mistake as
+the purse that would have collided with the sort tag at five digits — which
+nothing in 1.3 reached either. It costs the row label two characters, paid the
+same way as `ROW_MONEY_RESERVE`: the full name is the heading of the detail
+pane for whichever row the cursor is on.
+
+### The tests needed a way in too
+
+Four suites opened the counter by pressing the accept key at an idle screen,
+because until 1.7 that worked. When the only way in became the menu, four
+suites broke in four places for one reason. `tests/drive.h` names the row and
+finds it, so the next time the grid gains an entry, nothing at the call sites
+moves.
+
+### The minigame never learns what a keyboard is
+
+`QteKey` is an index into a glyph switch, not a raylib key code. The scene
+translates its own `dx`/`dy` and accept key into one, which means `main.c`
+needed no new bindings at all — the arrows were already `SceneMove` and SPACE
+was already `SceneAdvance`, and both now route to the top of the ladder when a
+heat is running. It also means the headless tests drive the minigame by
+pressing `QK_UP` rather than by faking an input layer.
+
+### The sequence always terminates
+
+A wrong key and an expired window are the same event: a miss that advances the
+step. So there is nothing to abandon into, no stall state, and no abandon key
+— a player who puts the controller down still reaches a verdict in 3.85
+seconds on a five-step heat, and `test_qte.c` asserts exactly that.
+
+This is why `ESC` can be refused rather than confirmed. The README's rule is
+that a reflexive back-key must never throw a session away; here the reflexive
+back-key would throw away six ore, and the sequence resolves on its own in
+under four seconds regardless, so refusing it costs the player nothing they
+cannot get by waiting.
+
+### InvForge had to be cut in half
+
+1.5's `InvForge()` took the ingredients and paid out the item in one call.
+There is no place in that shape for a minigame: the ore has to leave the pack
+before the player knows how it will go, or a bad heat costs nothing and the
+QTE is decoration. So it became `InvSpendMaterials()` and `InvGrantItem()`,
+and a ruined heat is precisely a spend with no matching grant.
+
+The check stays all-or-nothing. A recipe short on its third ingredient takes
+none of the first two.
+
+### Quality is a promoted output, not a tier on the item
+
+The obvious design is "a fine heat produces a Rare version of the same item".
+It does not fit the inventory, and the inventory is right: held items are
+counts, not instances. The pack knows it holds four of item 12 and has nowhere
+to record that one of them came out better.
+
+Per-instance quality would mean an item list rather than a count array, in
+`.bss` and in the save blob, plus every screen that shows a row learning about
+it. So `RecipeDef` gains one byte — `fine`, an ItemId — and a flawless heat
+produces a different item instead of a better one.
+
+**The gap:** only the Shortsword has a `fine` today, because Steel Longsword
+was already in `ITEMS` and the other five recipes have no counterpart that
+exists. On a dagger, a flawless heat is worth exactly what a scrappy one is.
+The mechanism is one byte and one branch; filling the column in is five names,
+five descriptions and five tiers, and it is a content task, not a code one.
+
+### The tuning is four constants
+
+| | Value | |
+|---|---:|---|
+| `Q_BASE_STEPS` | 4 | plus the output's tier |
+| `Q_WINDOW` | 0.85 s | the first step |
+| `Q_TIGHTEN` | 0.045 s | shaved off each step after it |
+| `Q_MIN_WINDOW` | 0.45 s | the floor |
+| `Q_TOLERANCE` | `steps / 3` | misses allowed before it is ruined |
+
+Tolerance is a fraction rather than a constant so a longer sequence is not
+punished twice for being longer. Integer division floors it, so a five-step
+heat allows exactly one miss and a seven-step heat allows two.
+
+Difficulty cannot be authored per recipe. When a boss commission wants a fixed
+eleven-step sequence, that is the point at which it earns a byte in
+`RecipeDef` — and not before.
+
+### Arrows are rectangles
+
+The font is ASCII and has no arrow glyphs. Adding four would cost a font
+rebuild plus four cells to draw shapes that are sixteen `DrawRectangle` calls
+here, and every other widget in the game is already built from rectangles.
+SPACE is a flat bar rather than the word, because a text label at this size is
+four pixels tall and reads as noise.
+
+The live key's window is drawn as a bar under it that eats itself from both
+ends. A number would be exact and useless; what the player needs is *now*
+getting narrower.
+
+### The anvil is a capability, not a room type
+
+`SceneDef` gains one byte, `has_forge`, beside the `has_shop` it already had.
+A room can have a counter, an anvil, both or neither. A `SCENE_TYPE_SMITHY`
+enum would have had to be re-taught every time one of those moved, and the
+first room that wants both would break it.
+
+The accept key on an idle screen opens whatever the room is for — the shop's
+counter, or the smithy's prompt. The intro script does **not** open it. The
+shop raises its counter after the welcome because trading is why the player
+travelled there; BEST lives in the smithy, and a menu that opens itself every
+time he walks through his own door is a menu in the way.
+
+### FORGE / BLUEPRINTS is a UiPrompt
+
+Not a bespoke two-row menu. This is the same shape as PAUSED and ANYTHING
+ELSE — a title and a row of labels — and `UiPrompt` was written generically in
+1.1 for exactly this. A hand-rolled chooser would have been ~300 bytes to say
+what two strings already say. `FORGE` is the default because it is why anyone
+walks up to an anvil.
+
+`ESC` on the list pops one level back to that prompt rather than closing the
+whole thing, so a player who wanted the other door does not have to walk back
+to the anvil to find it.
+
+### One screen, two modes
+
+FORGE and BLUEPRINTS are the same recipe list, the same detail pane and the
+same scroll clamp. The differences are that the category tabs are inert in the
+book and that the accept key is refused there. Two files would have been two
+copies of the row builder and the ingredient readout so that one of them could
+ignore a key press.
+
+### Unavailable recipes are shown, not hidden
+
+A menu that changes length depending on what is in the pack cannot be learned.
+The player has no way to tell "I cannot afford this" from "this does not
+exist", and the row that vanished is the one they were about to plan around.
+Disabled rows keep their place, lose their colour, and the detail pane names
+the shortfall: `Iron Ore  34/40`.
+
+This is the call the title screen already makes when it greys `LOAD` instead
+of removing it. The two screens now agree, which matters more than either
+choice on its own.
+
+### An ingredient is two bytes, not one
+
+The obvious saving is a nibble pair — item id high, count low — and it does not
+survive contact with the table. There are 27 items and the Cuirass wants forty
+ore. Packing would buy 24 bytes across the whole recipe table and cap the
+design at fifteen materials in counts of fifteen, which is the wrong trade
+this early. Everything else a recipe needs is reached through `out` into
+`ITEMS`, which is the same call `StockRow` makes.
+
+### The row index is not the recipe index
+
+The shop shipped this bug in 1.2 and it was only caught when sorting arrived
+in 1.3: reading the table by row number acts on whatever landed in that slot
+after the reorder. The forge went in with `ref` from the start, and
+`test_forge.c` asserts under an active alphabetical sort that row 0 really is
+a different recipe from recipe 0 — and then forges it and checks the right
+blade appeared.
+
+### Crafting resolves instantly, on purpose
+
+`ForgeCraft()` is the seam the Week 2 sequential QTE goes behind, and nothing
+else needs to move when it lands: the row selection, the material check and
+the all-or-nothing consume/grant are already on the correct side of it.
+`InvForge()` verifies every ingredient before taking any, so a recipe that
+comes up short on its third slot cannot leave the player without the ore *or*
+the blade.
+
+### The unity build bit again, one level up
+
+1.4's hazard was two files defining `TITLE_Y`. `static` looked like the
+defence against that, and it is not one: it scopes a function to its
+translation unit, and a unity build has exactly one. `forge.c`'s `BuildRows`,
+`ClampCursor` and `Say` collided head-on with `shop.c`'s — the same three
+helpers doing the same three jobs for the other list screen.
+
+That collision was at least a hard error, because the signatures differ. Two
+screens whose helpers happened to take the same type would have silently
+shared one implementation. Every static in `forge.c` is now prefixed `Forge`,
+and the rule is the same as for macros: in this build, file scope is not
+scope.
 
 **1.3** added list sorting, and tightened the shop:
 
@@ -106,7 +711,179 @@ Measured with `nm --size-sort -S` on an `-O2` object, not estimated.
 | code, tables and strings | 22,139 | `.text` + `.rodata` less the assets above |
 | `.data` | 1,720 | |
 | `.bss` | 116 | 52 of it the live inventory |
-| **Object total** | **89,823** | **6.09% of the 1,474,560 budget** |
+| **Object total (1.4)** | **89,823** | **6.09% of the 1,474,560 budget** |
+
+### What 1.9.3 added
+
+| Section | Δ bytes |
+|---|---:|
+| stacked glow, integer sqrt, size breathing | +76 |
+
+Seventy-six bytes, and most of the visible change is in three numbers in the
+scene table. The radial falloff cost nothing because the blend was already
+doing the work — it just was not being given anything to accumulate.
+
+### What 1.9.2 added
+
+Nothing. One coordinate moved a pixel and the version string changed. It is a
+separate number because the stamp is drawn now: a build that differs from
+1.9.1 and calls itself 1.9.1 is a screenshot that lies about which build took
+it, which is the whole reason the stamp was added.
+
+### What 1.9.1 added
+
+| | Bytes |
+|---|---:|
+| lamp tuning table, second draw path, per-light phase | ~640 |
+| `LightDef` tables for two rooms | ~96 |
+| version stamp and `version.h` | ~40 |
+| `.eh_frame`, misc | ~224 |
+| **Total object delta** | **+1,000** |
+
+Still zero asset bytes. The three shop lamps cost 36 bytes of table and share
+every line of code the hearth already had; the +1,000 is almost entirely the
+generalisation — a loop where there was a single light, and a tuning table
+where the numbers were constants.
+
+### What 1.9 added
+
+| | Bytes |
+|---|---:|
+| `VfxFireDraw` | 687 |
+| `VfxSpawn` | 502 |
+| `VfxBlob` | 194 |
+| `VfxFireUpdate` | 188 |
+| `VfxWave` (hash + smoothstep) | 145 |
+| `VfxFireGlow` | 133 |
+| `VfxFireStart` / `Stop` / `IsLive` | 154 |
+| **vfx code** | **2,003** |
+| `FireDef` in the scene table | 20 |
+| date badge rework | inlined |
+| **Total object delta** | **+2,660** |
+
+Zero asset bytes and zero `.rodata` beyond the twenty in the scene table. The
+ember array is 392 bytes of stack, which costs nothing on disk.
+
+`VfxSpawn` at 502 is the surprise — four hash calls and the mid-life scatter,
+inlined into both its callers. If the size audit ever needs it back, dropping
+the scatter and accepting one dull second on room entry is most of it.
+
+### What 1.8 added
+
+| Section | Δ bytes |
+|---|---:|
+| `.text` | +1,088 |
+| `.eh_frame` | +88 |
+| **Total** | **+1,176** |
+
+| Symbol | Bytes |
+|---|---:|
+| `UiPromptDraw` | 1,345 |
+| `UiPromptWidth` | 323 |
+| `PromptBtnBlockW` | 134 |
+| `UiPromptOpen` / `OpenColumn` | 170 |
+| everything else | 152 |
+| **prompt widget, whole** | **2,124** |
+
+The widget roughly doubled: one draw path became two, and a constant became a
+measurement. Nothing new is in `.rodata` — the pause box reordered its labels
+rather than gaining any, and the date badge's strings were already there.
+
+### What 1.7 added
+
+| Section | Δ bytes |
+|---|---:|
+| `.text` | +1,568 |
+| `.rodata` + `.rodata.str*` | +304 |
+| `.data.rel.ro` | +64 |
+| `.eh_frame` | +104 |
+| everything else | +66 |
+| **Total** | **+2,106** |
+
+Almost none of it survives as a named symbol — `RootBuild`, `DrawDayBadge`,
+`AdvanceDay` and the rest are small enough that `-O2` folded them into their
+callers, so `nm` only finds `UiCount` at 75 bytes. The section delta is the
+honest number.
+
+Note what came *off*: `SceneDef` lost a byte per room, `AFTER_OPEN_SHOP` and
+its switch arm are gone, and two auto-open paths went with them. The +2,106 is
+already net of those.
+
+### What 1.6 added
+
+Same method — both objects rebuilt with identical flags and diffed.
+
+| Section | Δ bytes |
+|---|---:|
+| `.text` | +3,120 |
+| `.rodata.str*` | +193 |
+| `.data.rel.ro` | +32 |
+| `.eh_frame` | +368 |
+| everything else | -16 |
+| **Total** | **+3,697** |
+
+| Symbol | Bytes |
+|---|---:|
+| `QteDraw` | 1,460 |
+| `QteUpdate` | 240 |
+| `QteBegin` | 215 |
+| `QteKeyPress` | 203 |
+| `InvSpendMaterials` / `InvGrantItem` | 125 |
+| everything else | 218 |
+| **QTE code** | **2,461** |
+
+`RECIPES` grew by 6 bytes for the `fine` column. The xorshift generator is 21
+bytes and replaces both `rand()` and raylib's `GetRandomValue`, neither of
+which is now linked; it is also what makes the sequence replayable under a
+seed, which is the only reason the grading tests can assert anything exact.
+
+`QteDraw` is again the bulk of it, and again that is where a screen's bytes
+go. Unlike `ForgeDraw` and `ShopDraw` it has no twin, so there is nothing to
+factor out.
+
+### What 1.5 added
+
+Both versions rebuilt with identical flags on one toolchain and diffed, since
+absolute section totals move with the compiler and only the delta is
+comparable:
+
+| Section | Δ bytes |
+|---|---:|
+| `.text` | +3,728 |
+| `.rodata` | +64 |
+| `.rodata.str*` | +618 |
+| `.data.rel.ro` | +112 |
+| `.bss` | +48 |
+| `.eh_frame` | +488 |
+| **Total** | **+5,074** |
+
+Measured per symbol with `nm --size-sort -S`:
+
+| Symbol | Bytes |
+|---|---:|
+| `ForgeDraw` | 1,975 |
+| `ForgeInput` | 367 |
+| `ForgeBuildRows` | 190 |
+| `InvForge` | 107 |
+| `InvCanForge` | 100 |
+| everything else | 250 |
+| **forge code** | **2,989** |
+
+| Data | Bytes | |
+|---|---:|---|
+| `RECIPES` | 48 | 6 recipes × 8 |
+| three new `ITEMS` rows | 24 | plus their strings |
+| `known` mask | 4 | `.bss`, and 4 more in the save blob |
+| new `held` slots | 6 | 3 items × 2 bytes |
+
+`ForgeDraw` is two thirds of it, which is where a list screen's bytes always
+go — the shop's draw is the same shape and the same order of magnitude. If the
+Week 7 audit is tight, the two draws are close enough that a shared
+list-page routine is the obvious ~1.5 KB, and the reason it has not been
+written yet is that two callers is where that abstraction usually turns out
+wrong.
+
+The save blob is 76 bytes.
 
 `portraits` fell from 9,801 to 8,011 without losing a frame — see the framing
 fix below. JACK's strip is dearer than BEST's at 9,795 because a hood full of
@@ -512,6 +1289,11 @@ src/title.{h,c}        title screen: START / LOAD / OPTION / EXIT
 src/ui_prompt.{h,c}    modal confirmation
 src/inventory.{h,c}    held counts and gold — the only mutable player state
 src/shop.{h,c}         BUY / SELL counter
+src/forge.{h,c}        FORGE / BLUEPRINTS: recipes, gating, the craft seam
+src/qte.{h,c}          the sequential heat: sequence, windows, grading
+src/vfx.{h,c}          room lights: hearths that spark, lamps that do not
+src/version.h          the one place the build says what it is
+tests/drive.h          reach a feature the way a player has to: via the menu
 src/game_data.h        item / equipment / destination / stock tables
 src/scene.{h,c}        SceneDef table and one room state machine
 assets/*.h             generated, do not hand-edit
@@ -1083,7 +1865,7 @@ than eyeballed.
 
     make test
 
-Three suites, linked against a headless raylib stub and run under
+Eight suites, linked against a headless raylib stub and run under
 AddressSanitizer and UndefinedBehaviorSanitizer. `DecompressData` returns
 NULL, which `GfxLoadTexture` already handles, so no art is decoded and no GPU
 is touched. See `tests/README.md`.
@@ -1106,6 +1888,125 @@ so the next line read through a null pointer and took the whole suite down —
 including the eleven checks after it that would have passed. `CHECK` records
 and continues; the new `REQUIRE` in `tests/check.h` stops the run cleanly when
 an assertion is a precondition for the lines below it.
+
+## Manual checklist for 1.9.3
+
+1. Each shop lamp has a soft **round** halo — no square left and right edges,
+   no bar shape.
+2. Watch one for ten seconds: it breathes, in reach as well as brightness,
+   and the glow spreads visibly onto the wood at its brightest.
+3. It is still light enough to read as a lamp, not a spotlight — the backdrop
+   under it is warmed, not washed out.
+4. The hearth is unchanged in feel but smoother at its edge.
+
+## Manual checklist for 1.9.2
+
+1. The corner reads **1.9.2**. If it reads 1.9.1 or nothing at all, this is
+   not the build you think it is — which is the check the stamp exists to
+   provide.
+2. The right-hand hanging lamp's glow is centred on its glass, not offset
+   toward the shelf beside it.
+
+## Manual checklist for 1.9.1
+
+1. Travel to Market Row. The wall lantern on the left and both hanging lamps
+   above the door glow and flicker.
+2. Watch them together for ten seconds — they must **not** pulse in time with
+   each other.
+3. They are visibly steadier than the smithy's hearth. Compare directly.
+4. No embers anywhere in the shop.
+5. Both figures stand in front of the lamps, not behind them.
+6. `1.9.1` sits bottom-right in every room, over every panel, and does not
+   collide with `M  MENU` at the other end.
+7. The console banner prints the same number as the corner does.
+
+## Manual checklist for 1.9
+
+1. Stand in the smithy and watch the hearth for ten seconds. Embers rise off
+   the coals, drift, and **fade out** — none of them blinks off mid-air.
+2. The light over the mouth breathes and never fully darkens.
+3. It does not repeat on any obvious cycle.
+4. Open **M**, the forge list, the QTE. The fire keeps burning behind all of
+   them.
+5. BEST occludes the near edge of the glow — the effect is behind him, not
+   painted over his apron.
+6. Travel to Market Row. **No fire there**, and no stray embers.
+7. Come back. It is lit again, already running, not starting from cold.
+8. The date badge is visibly wider with air around both `DAY` and the number,
+   and still clears the shop's purse on the title line.
+
+## Manual checklist for 1.8
+
+1. In the smithy, the date sits top right in a bordered box, over the frame's
+   top edge, not floating on the artwork.
+2. Open **M → BUY/SELL**. The badge is still legible and does **not** touch
+   the purse on the title line.
+3. Open the forge list and the QTE. The badge clears both.
+4. **M → END DAY.** Every character of `The forge goes cold until morning.`
+   is inside the box, which is visibly wider than the other prompts.
+5. **ESC** in an idle room. The pause box is a stack: SAVE, CANCEL, QUIT,
+   with CANCEL highlighted, all three buttons the same width.
+6. Left and right do nothing to it. Up and down move, and wrap.
+7. Choose SAVE — `Progress saved.` appears under the buttons, inside the box,
+   and the box grows a line taller to hold it.
+8. Up and down do nothing to `NOT YET / END DAY`; left and right move it.
+
+## Manual checklist for 1.7
+
+1. Load into the smithy. `DAY 1` sits top right; `M  MENU` sits bottom left.
+2. Let BEST finish talking, then press **SPACE**. Nothing happens — correct.
+3. **M**. Six rows: TALK, FORGE, INVENTORY, EQUIPMENT, MAP, END DAY.
+4. FORGE opens THE ANVIL. **ESC**, **ESC** back to the room.
+5. Travel to Market Row. Let JACK finish — the counter does **not** open.
+   **M** now shows **BUY/SELL** where FORGE was.
+6. In BUY/SELL: prices read `18 G`, the purse reads `… G`, and HELD and STOCK
+   in the detail pane read `… EA`.
+7. **M → INVENTORY**: every row's count reads `… EA`.
+8. **M → END DAY**. It asks, with NOT YET selected. Press **SPACE** —
+   nothing changes and the menu is still there.
+9. **END DAY** again, move right, **SPACE**. Fade out, fade in, `DAY 2` top
+   right, a line about the coals being banked, and the shop's shelves are
+   full again.
+10. The badge stays readable over the shop page, the forge list and the QTE.
+11. Save on day 2, quit, relaunch, LOAD — it is still day 2.
+
+## Manual checklist for 1.6
+
+1. FORGE → WEAPONS → Iron Shortsword → **SPACE**. The room dims, five keys
+   appear, the first one glows and a bar under it starts shrinking.
+2. Ore and coal are already gone: back out afterwards and check
+   **M → INVENTORY**.
+3. Hit all five in order — the verdict reads `FINE WORK` and the pack gains a
+   **Steel Longsword**, not a Shortsword.
+4. Do it again and miss one — `IT WILL DO`, and it is a Shortsword.
+5. Miss two — `RUINED`, and nothing is in the pack. The ore is still gone.
+6. Start a heat and press nothing at all. It resolves itself in under four
+   seconds and ruins.
+7. **ESC** and **M** during a heat do nothing at all.
+8. No two adjacent keys in a sequence are ever the same.
+9. Forge a dagger flawlessly — you get a dagger. This is the known content gap
+   above, not a bug.
+10. The verdict clears itself and the list comes back on the same shelf, same
+    cursor and same sort, with the verdict as its result line.
+
+## Manual checklist for 1.5
+
+1. In the smithy, once BEST stops talking, **SPACE** raises **THE ANVIL** with
+   FORGE selected.
+2. FORGE opens on WEAPONS. **left/right** switches to ARMOR.
+3. On ARMOR, **Iron Cuirass is visible and grey** with no quality ball, and
+   its detail pane reads `Iron Ore 34/40` in red plus `SHORT ON MATERIALS`.
+   **SPACE** on it says so and spends nothing.
+4. Forge an Iron Dagger: ore drops by 2, leather by 1, and **M → INVENTORY →
+   GEAR** shows one Iron Dagger that was not there before.
+5. Sort the shelf with **A**, then forge the top row — the blade you were
+   looking at is the one that appears.
+6. **ESC** returns to THE ANVIL, not to the room. **ESC** again leaves.
+7. BLUEPRINTS lists all six recipes across both shelves, left/right does
+   nothing, and **SPACE** never makes anything.
+8. **M** is refused while either list is open.
+9. Save, quit, relaunch, LOAD — the forged dagger is still in the pack.
+10. Travel to Market Row: **SPACE** there opens JACK's counter, not an anvil.
 
 ## Manual checklist for 1.4
 
@@ -1162,8 +2063,38 @@ an assertion is a precondition for the lines below it.
     not just whoever was moving.
 12. JACK's portrait is his own face, not BEST's.
 
+## A fresh clone builds again
+
+`assets/merchant_idle.h` and `assets/portraits_merchant.h` were in
+`.gitignore`, dating from when they were magenta placeholders that must never
+reach a submission. They stopped being placeholders in 1.2 and the ignore
+stayed, so every clone failed on a missing include before it could run a
+single test — while the other five generated headers in `assets/` had been
+committed all along.
+
+All seven are committed as of 1.6. `make assets` still reproduces them byte
+for byte from `resource/`, so nothing is lost by carrying them, and a repo
+that cannot be built by the command its own README names is worse than a repo
+carrying 13 KB of derived data.
+
+The design intent lives in `docs/GDD.md`. Where the two disagree, the GDD is
+the intent and this file is the record of what was actually done.
+
 ## Next
 
+- Nothing happens overnight except a restock. `AdvanceDay` is one function and
+  it is where the drama engine goes.
+- The day has no end. A contest submission needs a last day and a reason to
+  have reached it.
+- Five of six recipes have no `fine` output, so a flawless heat on them is
+  worth nothing extra. Five items is the fix.
+- The QTE has no sound. A hit and a miss are the two events in the game that
+  most want one, and Week 5's audio pass should start there rather than with
+  ambience.
+- Recipes are all known from the start. The mask and the save field are
+  already there, so teaching one in Week 3 costs a bit, not a save version.
+- `ForgeDraw` and `ShopDraw` are the same screen twice. A third list screen is
+  the point at which that stops being a coincidence.
 - Sorting is per screen and resets on quit; it is two bytes, so persisting it
   in the save blob is a version 3 whenever that is worth a bump.
 - Shop stock resets on every visit. A day counter in Week 4 makes that a

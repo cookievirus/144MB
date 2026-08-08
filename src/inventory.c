@@ -6,6 +6,7 @@ void InvReset(void)
 {
     for (int i = 0; i < ITEM_COUNT; i++) g_inv.held[i] = ITEMS[i].qty;
     g_inv.gold = GOLD_START;
+    g_inv.known = RECIPES_KNOWN_AT_START;
 }
 
 int InvHeld(int item)
@@ -62,5 +63,57 @@ bool InvSell(int item, int price)
 
     g_inv.held[item]--;
     g_inv.gold += price;
+    return true;
+}
+
+/* ---- recipes ----------------------------------------------------------- */
+
+bool InvKnows(int recipe)
+{
+    if (recipe < 0 || recipe >= RECIPE_COUNT) return false;
+    return (g_inv.known >> recipe) & 1u;
+}
+
+void InvLearn(int recipe)
+{
+    if (recipe < 0 || recipe >= RECIPE_COUNT) return;
+    g_inv.known |= (1u << recipe);
+}
+
+/* ---- the forge --------------------------------------------------------- */
+
+bool InvCanForge(int recipe)
+{
+    if (!InvKnows(recipe)) return false;
+
+    const RecipeDef *r = &RECIPES[recipe];
+    for (int i = 0; i < RECIPE_SLOTS; i++) {
+        if (r->mat[i].item == RECIPE_NONE) continue;
+        if (g_inv.held[r->mat[i].item] < r->mat[i].qty) return false;
+    }
+    return true;
+}
+
+/* Checked in full before anything is taken. Consuming as we walk the slots
+   would leave the player short of ore *and* short of a blade the moment the
+   third ingredient came up empty. */
+bool InvSpendMaterials(int recipe)
+{
+    if (!InvCanForge(recipe)) return false;
+
+    const RecipeDef *r = &RECIPES[recipe];
+    for (int i = 0; i < RECIPE_SLOTS; i++) {
+        if (r->mat[i].item == RECIPE_NONE) continue;
+        g_inv.held[r->mat[i].item] =
+            (unsigned short)(g_inv.held[r->mat[i].item] - r->mat[i].qty);
+    }
+    return true;
+}
+
+bool InvGrantItem(int item)
+{
+    if (item < 0 || item >= ITEM_COUNT) return false;
+    if (g_inv.held[item] >= 0xFFFF) return false;
+    g_inv.held[item]++;
     return true;
 }

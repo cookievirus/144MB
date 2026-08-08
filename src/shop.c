@@ -233,8 +233,7 @@ void ShopDraw(const UiShop *s)
 
     /* Purse, on the title line where the player is already looking when the
        price list is what they are reading. */
-    UiDrawText("G", GOLD_X + 2, PAGE_Y + 7, UI_DIM);
-    UiNumber(GOLD_X, PAGE_Y + 7, InvGold(), UI_TEXT);
+    UiMoney(GOLD_X + 14, PAGE_Y + 7, InvGold(), UI_TEXT);
     UiDrawText(SortLabel(&s->sort), SORT_TAG_X, PAGE_Y + 7, UI_DIM);
 
     int tx = LIST_X;
@@ -275,14 +274,14 @@ void ShopDraw(const UiShop *s)
             int y = DETAIL_STAT_Y;
             UiRule(DETAIL_X, y - 6, DETAIL_W, UI_EDGE);
             UiDrawText("HELD", DETAIL_X, y, UI_DIM);
-            UiNumber(DETAIL_X + DETAIL_W, y, InvHeld(item), UI_TEXT);
+            UiCount(DETAIL_X + DETAIL_W, y, InvHeld(item), UI_TEXT);
 
             y += 11;
             if (s->tab == SHOP_BUY) {
                 const int st = RowStock(s, row);
                 UiDrawText("STOCK", DETAIL_X, y, UI_DIM);
-                UiNumber(DETAIL_X + DETAIL_W, y,
-                         (st < 0) ? 0 : (int)s->stock[st], UI_TEXT);
+                UiCount(DETAIL_X + DETAIL_W, y,
+                        (st < 0) ? 0 : (int)s->stock[st], UI_TEXT);
             } else {
                 UiDrawText("PAYS", DETAIL_X, y, UI_DIM);
                 UiMoney(DETAIL_X + DETAIL_W, y, RowPrice(s, row), UI_TEXT);

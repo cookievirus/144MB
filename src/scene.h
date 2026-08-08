@@ -14,7 +14,11 @@
 #ifndef SCENE_H
 #define SCENE_H
 
+#include "forge.h"
 #include "gfx.h"
+#include "qte.h"
+#include "version.h"
+#include "vfx.h"
 #include "shop.h"
 #include "sort.h"
 #include "ui_dialog.h"
@@ -55,13 +59,27 @@ typedef struct SceneDef {
     const EmbeddedImage *bg;
     SceneActor actor[SCENE_MAX_ACTORS];
     unsigned char actors;           /* 0 for an empty room */
-    unsigned char has_shop;
+    /* 1.7. One RoomFeature byte where 1.4 had has_shop and 1.5 added
+       has_forge. Two flags claimed a room could have a counter and an anvil
+       at once; no room does, and the main menu could not have drawn it if one
+       did - the root grid has a single slot for what the room is for. */
+    unsigned char feature;
+    /* 1.9.1. Everything burning in this room, by value. `lights == 0` is a
+       room with nothing lit, which no room is today but the Guild might be
+       before its brazier is drawn. Twelve bytes a slot; four slots. */
+    LightDef light[SCENE_MAX_LIGHTS];
+    unsigned char lights;
     const DialogLine *intro;
     const DialogLine *solo;         /* played by the TALK command */
     unsigned char intro_len, solo_len;
 } SceneDef;
 
 extern const SceneDef SCENES[SCENE_COUNT];
+
+typedef enum FadeKind {
+    FADE_TRAVEL = 0,
+    FADE_DAY
+} FadeKind;
 
 typedef struct Scene {
     unsigned char id;
@@ -78,14 +96,27 @@ typedef struct Scene {
     float fade;                 /* 0 = clear, 1 = black */
     signed char fade_dir;       /* +1 going dark, -1 coming back, 0 idle */
     unsigned char fade_target;  /* SceneId to load at full black */
+    /* What the black is hiding. Travel swaps the room; a day boundary keeps
+       it and turns the world over instead. Reusing the fade rather than
+       writing a second one keeps the two transitions the same length and the
+       same curve, which is most of why they read as the same kind of event. */
+    unsigned char fade_kind;    /* FadeKind */
+
+    /* Day one is the first day, not the zeroth. Sixteen bits because a run
+       that reaches 65535 days has other problems. */
+    unsigned short day;
 
     UiDialog dialog;
     UiMenu menu;
     UiPrompt prompt;
     UiShop shop;
+    UiForge forge;
+    UiQte qte;
+    VfxRoom ambience;
 
-    /* One UiPrompt serves both the pause box and the leave-the-counter box,
-       so the accept handler has to know which question is on screen. */
+    /* One UiPrompt serves the pause box, the leave-the-counter box and the
+       smithy's FORGE / BLUEPRINTS question, so the accept handler has to know
+       which one is on screen. */
     unsigned char prompt_kind;
 
     /* What happens when the current script runs out. This is what carries

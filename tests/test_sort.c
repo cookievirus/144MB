@@ -9,10 +9,15 @@
 #include "sort.c"
 #include "inventory.c"
 #include "shop.c"
+#include "vfx.c"
+#include "qte.c"
+#include "forge.c"
 #include "ui_menu.c"
 #include "ui_prompt.c"
 #include "ui_dialog.c"
 #include "scene.c"
+
+#include "drive.h"
 
 static void step(Scene *s,int n){ for(int i=0;i<n;i++) SceneUpdate(s,1.0f/60.0f); }
 
@@ -114,11 +119,16 @@ int main(void)
     REQUIRE(sc.dialog.phase != DIALOG_HIDDEN && sc.dialog.line != NULL,
             "TALK plays a line");
     CHECK(sc.dialog.line->set == PORTRAIT_MERCHANT, "JACK is speaking");
-    CHECK(!ShopIsOpen(&sc.shop), "the counter waits for him to finish");
+    CHECK(!ShopIsOpen(&sc.shop), "TALK does not open the counter");
     printf("\nTALK line 1: \"%.34s...\"\n", sc.dialog.line->text);
     CHECK(sc.dialog.line->text != SHOP_INTRO[0].text, "not the welcome again");
-    for (int i = 0; i < 40 && !ShopIsOpen(&sc.shop); i++) SceneAdvance(&sc);
-    CHECK(ShopIsOpen(&sc.shop), "the counter opens once he is done");
+
+    /* 1.7: TALK is only talk. The counter is BUY/SELL, one row down, and
+       when the conversation ends the room is idle rather than trading. */
+    DriveSkipDialog(&sc);
+    CHECK(!ShopIsOpen(&sc.shop), "and still does not when he finishes");
+    REQUIRE(DriveFeature(&sc), "the shop offers a BUY/SELL row");
+    CHECK(ShopIsOpen(&sc.shop), "which is what opens the counter");
     printf("counter opened after the TALK script\n");
 
     /* ---- sort keys route to the top layer only ------------------------- */
@@ -179,28 +189,71 @@ int main(void)
         printf("purse at 6 digits starts x=%d, clearance %d px\n",
                purse_left, purse_left - (SORT_TAG_X + widest));
 
-        /* The prompt box is 152 px wide and centred. Its title, its note and
-           the row of buttons all have to live inside that. */
-        const int box = 152, pad = 8;
-        static const char *const PTITLES[] = { "PAUSED", "END TRADING?" };
-        for (int i = 0; i < 2; i++)
-            CHECK(UiTextWidth(PTITLES[i]) <= box - pad, "prompt title fits its box");
-        static const char *const NOTES[] = { "Progress saved.", "Save failed." };
-        for (int i = 0; i < 2; i++)
-            CHECK(UiTextWidth(NOTES[i]) <= box - pad, "prompt note fits its box");
+        /* The prompt box used to be a fixed 152 px and this block used to be
+           a list of the strings that went in it. That is why 1.7's END DAY
+           note overflowed with a passing test suite: the check knew about the
+           strings someone had remembered to add to it, and the new one was
+           not among them.
 
-        static const char *const SYS[] = { "CANCEL", "SAVE", "QUIT" };
+           1.8 made the box measure its contents, so the thing to assert is
+           the invariant - whatever is put in, the box grows to hold it and
+           stays on screen - and then to check the real prompts against it
+           rather than a copy of their labels. */
+        UiPrompt pr;
+
+        static const char *const SYS[] = { "SAVE", "CANCEL", "QUIT" };
         static const char *const TRD[] = { "KEEP TRADING", "DONE" };
-        int w = 0;
-        for (int i = 0; i < 3; i++) w += UiTextWidth(SYS[i]) + 10;
-        w += 4 * 2;
-        CHECK(w <= box - pad, "pause buttons fit their box");
-        printf("pause buttons %d px in a %d px box\n", w, box);
-        w = 0;
-        for (int i = 0; i < 2; i++) w += UiTextWidth(TRD[i]) + 10;
-        w += 4;
-        CHECK(w <= box - pad, "trade buttons fit their box");
-        printf("trade buttons %d px in a %d px box\n", w, box);
+        static const char *const END[] = { "NOT YET", "END DAY" };
+        static const char *const SMI[] = { "FORGE", "BLUEPRINTS" };
+
+        struct { const char *title; const char *const *opts; int n;
+                 const char *note; bool column; } BOXES[] = {
+            { "PAUSED",         SYS, 3, NULL,                                true  },
+            { "PAUSED",         SYS, 3, "Progress saved.",                   true  },
+            { "ANYTHING ELSE?", TRD, 2, NULL,                                false },
+            { "END THE DAY?",   END, 2, "The forge goes cold until morning.", false },
+            { "THE ANVIL",      SMI, 2, NULL,                                false },
+        };
+
+        for (int i = 0; i < (int)(sizeof(BOXES) / sizeof(BOXES[0])); i++) {
+            if (BOXES[i].column) {
+                UiPromptOpenColumn(&pr, BOXES[i].title, BOXES[i].opts,
+                                   BOXES[i].n, 0);
+            } else {
+                UiPromptOpen(&pr, BOXES[i].title, BOXES[i].opts, BOXES[i].n, 0);
+            }
+            pr.note = BOXES[i].note;
+
+            const int bw = UiPromptWidth(&pr);
+            const int bh = UiPromptHeight(&pr);
+            const int inner = bw - PROMPT_PAD * 2;
+
+            printf("box \"%s\" %dx%d, inner %d\n", BOXES[i].title, bw, bh, inner);
+
+            CHECK(bw <= PROMPT_MAX_W, "the box stays on screen");
+            CHECK(bh <= VSCREEN_H, "and inside the frame vertically");
+            CHECK(bw >= PROMPT_MIN_W, "and never shrinks below the minimum");
+            CHECK(UiTextWidth(BOXES[i].title) <= inner, "title inside the box");
+            if (BOXES[i].note != NULL) {
+                CHECK(UiTextWidth(BOXES[i].note) <= inner, "note inside the box");
+            }
+
+            int row = 0, widest = 0;
+            for (int b = 0; b < BOXES[i].n; b++) {
+                const int w = UiTextWidth(BOXES[i].opts[b]) + 10;
+                row += w + (b + 1 < BOXES[i].n ? 4 : 0);
+                if (w > widest) widest = w;
+            }
+            CHECK((BOXES[i].column ? widest : row) <= inner,
+                  "buttons inside the box");
+        }
+
+        /* And the invariant itself: a note far longer than anything shipped
+           still ends up inside its own walls. */
+        UiPromptOpen(&pr, "?", TRD, 2, 0);
+        pr.note = "A note nobody has written yet, of some length.";
+        CHECK(UiTextWidth(pr.note) <= UiPromptWidth(&pr) - PROMPT_PAD * 2,
+              "an unforeseen note still fits, because the box follows it");
 
         static const char *const HINTS[] = {
             "L/R TAB  SPACE TRADE  R/T/A SORT  ESC LEAVE",

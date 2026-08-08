@@ -9,10 +9,15 @@
 #include "sort.c"
 #include "inventory.c"
 #include "shop.c"
+#include "vfx.c"
+#include "qte.c"
+#include "forge.c"
 #include "ui_menu.c"
 #include "ui_prompt.c"
 #include "ui_dialog.c"
 #include "scene.c"
+
+#include "drive.h"
 
 
 int main(void)

@@ -39,6 +39,12 @@ static const DialogLine SHOP_INTRO[] = {
    trade, and the counter opens when he finishes. */
 /* Said as the counter closes. The question it ends on is answered by the
    prompt that follows, so the line has to end on one. */
+/* Said to nobody in particular, which is why there is no speaker and no
+   portrait: it is the day turning over, not a character talking. */
+static const DialogLine DAY_BREAK[] = {
+{ NULL, "The coals are banked and the shutters\nare down. Tomorrow, then.", MOOD_TIRED, PORTRAIT_HERO },
+};
+
 static const DialogLine SHOP_AGAIN[] = {
 { "JACK", "Right, that is you sorted. Anything\nelse before you go?", MOOD_SMILE, PORTRAIT_MERCHANT },
 };
@@ -105,7 +111,21 @@ const SceneDef SCENES[SCENE_COUNT] = {
         .actor = {
             { &hero_idle, 239, 73, +1, 0.45f },
         },
-        .has_shop = 0,
+        .feature = ROOM_FEATURE_FORGE,
+        /* Measured off resource/BG-01-SMITTY-A03.png rather than guessed:
+           a threshold pass, connected-component labelled to tell the hearth
+           from the lantern and the window, puts the lit mouth at x 216..247,
+           y 110..131. So the glow centres on (232,121) and the coal bed sits
+           nine pixels under that. Numbers taken from the art are numbers that
+           stay right when the art is re-exported at a different crop. */
+        .lights = 1,
+        .light = {
+            /* rx/ry are the full reach now, not the core: 1.9 drew a core
+               blob plus a halo at twice the radius, and 1.9.3's stacked
+               falloff replaces both, so the numbers are the old outer pair. */
+            { .x = 232, .y = 121, .rx = 30, .ry = 21, .kind = LIGHT_HEARTH,
+              .embers = 14, .bed_w = 26, .bed_dy = 9, .rise = 30 },
+        },
         .intro = SMITHY_INTRO, .intro_len = LEN(SMITHY_INTRO),
         .solo  = SMITHY_SOLO,  .solo_len  = LEN(SMITHY_SOLO),
     },
@@ -116,7 +136,43 @@ const SceneDef SCENES[SCENE_COUNT] = {
             { &hero_idle,     230,  71, +1, 0.45f },
             { &merchant_idle,  13,  88, -1, 1.30f },
         },
-        .has_shop = 1,
+        .feature = ROOM_FEATURE_TRADE,
+        /* Same method on resource/BG-01-ITEM_SHOP-A01.png, and it needed
+           more care than the smithy did. The first pass ranked by luminance
+           and found the doorway and the skylight, which are far brighter than
+           a wick and are not lamps. Warmth over luminance, inside windows
+           chosen by eye, finds the three that are.
+
+           1.9.2 re-measured them properly. 1.9.1 took the single brightest
+           warm cell in each window, which is one sample and lands wherever
+           the resample happened to put a highlight; these are warm-weighted
+           centroids over the whole core, which is the actual centre of the
+           light:
+
+               wall lantern     (12.8, 62.6)   over a core x 4..21, y 53..73
+               hanging lamp A  (224.0, 29.0)   over x 217..231, y 26..32
+               hanging lamp B  (252.2, 29.4)   over x 248..255, y 27..33
+
+           Lamp B moved a pixel left and a pixel down. Two of the three were
+           already right, which is the useful part of the result: the cheap
+           method was not wrong so much as unverifiable.
+
+           None of them sparks. A lamp that threw embers would be a lamp about
+           to set fire to a shop full of potions.
+
+           1.9.3 sized the haloes to what a lamp actually throws. They were
+           rx 4..5, which is the lit glass and not the light: at 320x240 that
+           is a bright dot sitting on a lamp, and the eye reads it as part of
+           the painting rather than as something happening. Round, and out to
+           roughly the reach a wick lights - the lantern is the biggest fixture
+           so it carries the widest. rx equals ry: these are circles, and the
+           ellipse is reserved for the hearth mouth, which genuinely is one. */
+        .lights = 3,
+        .light = {
+            { .x =  13, .y = 63, .rx = 13, .ry = 13, .kind = LIGHT_LAMP },
+            { .x = 224, .y = 29, .rx = 11, .ry = 11, .kind = LIGHT_LAMP },
+            { .x = 252, .y = 29, .rx = 11, .ry = 11, .kind = LIGHT_LAMP },
+        },
         .intro = SHOP_INTRO, .intro_len = LEN(SHOP_INTRO),
         .solo  = SHOP_SOLO,  .solo_len  = LEN(SHOP_SOLO),
     },
@@ -126,9 +182,19 @@ const SceneDef SCENES[SCENE_COUNT] = {
 
 /* CANCEL is first and is the default, so a stray ESC followed by a stray
    confirm is harmless. */
-static const char *const SYSTEM_OPTIONS[3] = { "CANCEL", "SAVE", "QUIT" };
-#define SYS_CANCEL 0
-#define SYS_SAVE   1
+/* 1.8 reordered and stacked these. The row put CANCEL first because it is
+   the safe answer and the safe answer goes under the cursor - but reading
+   order and cursor position are different jobs, and a row made them fight.
+   Stacked, the list reads in the order the actions escalate, SAVE then
+   CANCEL then QUIT, and CANCEL still starts under the cursor by sitting in
+   the middle. Nothing destructive is one keypress from open.
+
+   A column rather than a row because these three are unlike each other. A row
+   invites the eye to scan a spectrum, which is right for NOT YET / END DAY
+   and wrong for a menu of unrelated verbs. */
+static const char *const SYSTEM_OPTIONS[3] = { "SAVE", "CANCEL", "QUIT" };
+#define SYS_SAVE   0
+#define SYS_CANCEL 1
 #define SYS_QUIT   2
 
 /* Leaving the counter. Same shape, same widget, different question - which is
@@ -141,24 +207,147 @@ static const char *const AGAIN_OPTIONS[2] = { "YES", "NO" };
 #define AGAIN_YES 0
 #define AGAIN_NO  1
 
+/* The smithy's two doors. A UiPrompt rather than a bespoke two-row menu:
+   this is the same shape as every other question the game asks, and the
+   widget was written generically in 1.1 for exactly this. A hand-rolled
+   chooser would have been ~300 bytes to say what a title and two labels
+   already say. */
+static const char *const SMITHY_OPTIONS[2] = { "FORGE", "BLUEPRINTS" };
+#define SMITHY_FORGE_OPT 0
+#define SMITHY_BOOK_OPT  1
+
+/* Ending the day is the one irreversible thing in the menu, so it asks. NO is
+   the default: a confirmation whose default is yes is a slower way of not
+   asking. */
+static const char *const END_DAY_OPTIONS[2] = { "NOT YET", "END DAY" };
+#define END_DAY_NO  0
+#define END_DAY_YES 1
+
 typedef enum PromptKind {
     PROMPT_SYSTEM = 0,
-    PROMPT_ANYTHING_ELSE
+    PROMPT_ANYTHING_ELSE,
+    PROMPT_SMITHY,
+    PROMPT_END_DAY
 } PromptKind;
 
 /* What a finished script hands control to. */
 typedef enum AfterScript {
     AFTER_NONE = 0,
-    AFTER_OPEN_SHOP,     /* fresh counter                        */
+    /* AFTER_OPEN_SHOP is gone with 1.7. Nothing opens a counter on its own
+       any more; the only way in is the menu row. */
     AFTER_RESUME_SHOP,   /* the same counter, state intact       */
     AFTER_ASK_AGAIN,     /* raise the "anything else?" prompt    */
     AFTER_LEAVE_SHOP     /* walk out of the room                 */
 } AfterScript;
 
+/* Raised by the FORGE row of the main menu. Blueprints is a door off the
+   anvil rather than a menu row of its own: the root grid is what the room
+   lets you do, and reading about a recipe is part of forging, not a second
+   thing the smithy is for. */
+static void OpenSmithyPrompt(Scene *s)
+{
+    s->prompt_kind = PROMPT_SMITHY;
+    UiPromptOpen(&s->prompt, "THE ANVIL", SMITHY_OPTIONS, 2, SMITHY_FORGE_OPT);
+}
+
+/* Starting a heat. The ore leaves the pack here rather than when the minigame
+   ends, which is the whole reason InvForge was split: a ruined heat has to
+   cost something, and the only way it can is if the cost was already paid.
+
+   The list closes rather than drawing behind the minigame. The QTE washes the
+   frame like any other modal, and a list legible under the wash would invite
+   the player to read it while a timer they cannot see is running. */
+static void BeginHeat(Scene *s, int recipe)
+{
+    if (!InvSpendMaterials(recipe)) return;
+    ForgeClose(&s->forge);
+    QteBegin(&s->qte, recipe);
+    TraceLog(LOG_INFO, "FORGE: heat begins on recipe %d", recipe);
+}
+
+/* Collecting the verdict. The grant happens here and not in qte.c, because
+   the minigame's job ends at a grade - it does not know what a pack is. */
+static void EndHeat(Scene *s)
+{
+    const int recipe = s->qte.recipe;
+    const QteGrade grade = QteResult(&s->qte);
+    const int out = QteOutput(recipe, grade);
+
+    QteClose(&s->qte);
+
+    const char *line;
+    if (out < 0) {
+        line = "The metal is spoiled.";
+    } else if (InvGrantItem(out)) {
+        line = (grade == QTE_FINE) ? "A fine piece." : "That will sell.";
+    } else {
+        line = "No room in the pack.";
+    }
+
+    ForgeResume(&s->forge, line);
+    TraceLog(LOG_INFO, "FORGE: grade %d -> item %d", (int)grade, out);
+}
+
+/* The room's own menu row. The scene owns this switch because the scene owns
+   the world; ui_menu.c only knows that the room declared a feature and what
+   it is called. */
+static void OpenRoomFeature(Scene *s)
+{
+    switch (SCENES[s->id].feature) {
+    case ROOM_FEATURE_TRADE: ShopOpen(&s->shop); break;
+    case ROOM_FEATURE_FORGE: OpenSmithyPrompt(s); break;
+    /* ROOM_FEATURE_PARTY has no room to be reached from yet. It is listed so
+       that the day the Guild gets a backdrop, this is not the file that has
+       to be found and edited. */
+    default: break;
+    }
+}
+
+/* Notes are budgeted where they are written, not where they are drawn. 1.7
+   set this one inline and it drew 26 px out through each wall of a box that
+   was 152 px wide no matter what went in it. The box measures itself now, and
+   these assertions catch the string that would be too wide even for that. */
+#define NOTE_END_DAY "The forge goes cold until morning."
+#define NOTE_SAVED   "Progress saved."
+#define NOTE_SAVE_NO "Save failed."
+UI_PROMPT_FITS(NOTE_END_DAY);
+UI_PROMPT_FITS(NOTE_SAVED);
+UI_PROMPT_FITS(NOTE_SAVE_NO);
+
+static void OpenEndDayPrompt(Scene *s)
+{
+    s->prompt_kind = PROMPT_END_DAY;
+    UiPromptOpen(&s->prompt, "END THE DAY?", END_DAY_OPTIONS, 2, END_DAY_NO);
+    s->prompt.note = NOTE_END_DAY;
+}
+
+/* Turning the day over. The fade is the same one travel uses, with a flag
+   saying what the black is hiding, so the two transitions cannot drift apart
+   in length or curve. */
+static void BeginDayChange(Scene *s)
+{
+    s->fade_dir = +1;
+    s->fade_kind = FADE_DAY;
+    UiMenuClose(&s->menu);
+    ShopClose(&s->shop);
+    ForgeClose(&s->forge);
+    UiDialogHide(&s->dialog);
+}
+
+/* Called at full black. Everything that happens overnight happens here, which
+   is the point of having a day boundary at all: it is the one moment the
+   world is allowed to change without the player watching. */
+static void AdvanceDay(Scene *s)
+{
+    if (s->day < 0xFFFFu) s->day++;
+    ShopRestock(&s->shop);
+    TraceLog(LOG_INFO, "SCENE: day %d begins", (int)s->day);
+}
+
 static void OpenSystemPrompt(Scene *s)
 {
     s->prompt_kind = PROMPT_SYSTEM;
-    UiPromptOpen(&s->prompt, "PAUSED", SYSTEM_OPTIONS, 3, SYS_CANCEL);
+    UiPromptOpenColumn(&s->prompt, "PAUSED", SYSTEM_OPTIONS, 3, SYS_CANCEL);
 }
 
 /* ---- save -------------------------------------------------------------- */
@@ -167,7 +356,7 @@ static void OpenSystemPrompt(Scene *s)
    rather than misread. 1.2 adds gold, the room the player is standing in and
    the held counts, so the version goes to 2 and a v1 blob is refused: the
    fields it lacks have no safe default now that coin can be spent. */
-#define SAVE_VERSION 2
+#define SAVE_VERSION 4
 #define SAVE_PATH "iron.sav"
 
 typedef struct SaveBlob {
@@ -178,6 +367,13 @@ typedef struct SaveBlob {
     unsigned short script_at;
     int gold;
     unsigned short held[ITEM_COUNT];
+    /* 1.5. Which recipes have been learned. The blob also grew by three held
+       counts when the forge's output items were added, so a v2 save is the
+       wrong length as well as the wrong version and is refused twice over. */
+    unsigned int known;
+    /* 1.7. Which day it is. A save that restored the pack but not the date
+       would put the player back on day one with a week of stock spent. */
+    unsigned short day;
 } SaveBlob;
 
 /* A version 1 blob has no gold field, and there is no honest default for it
@@ -214,7 +410,7 @@ static bool WriteSave(const Scene *s)
     SaveBlob blob = {
         { 'I', 'R', 'O', 'N' }, SAVE_VERSION,
         (unsigned short)s->id, (unsigned short)s->phase,
-        (unsigned short)s->script_at, InvGold(), { 0 }
+        (unsigned short)s->script_at, InvGold(), { 0 }, g_inv.known, s->day
     };
     for (int i = 0; i < ITEM_COUNT; i++) {
         blob.held[i] = (unsigned short)InvHeld(i);
@@ -235,13 +431,15 @@ static void PlayScript(Scene *s, const DialogLine *lines, int len,
     UiDialogShow(&s->dialog, &lines[0]);
 }
 
-/* The welcome leads straight into the counter: the player travelled here to
-   trade, and making them open a menu to reach the thing the room exists for
-   is a step that only ever gets in the way. */
+/* 1.4 had the welcome lead straight into the counter, and 1.5 gave the anvil
+   the same courtesy from the accept key. 1.7 took both away. Every feature is
+   reached from the main menu now, and a room that also opens its own counter
+   teaches the player that some things are in the menu and some things happen
+   on their own - which is exactly the confusion the single entry point exists
+   to remove. The M hint in the corner is what replaces it. */
 static void PlayIntro(Scene *s, const SceneDef *def)
 {
-    PlayScript(s, def->intro, def->intro_len,
-               def->has_shop ? AFTER_OPEN_SHOP : AFTER_NONE);
+    PlayScript(s, def->intro, def->intro_len, AFTER_NONE);
 }
 
 #define ENTER_SECONDS 1.15f
@@ -303,22 +501,28 @@ static void LoadRoom(Scene *s, SceneId id)
     UiPromptClose(&s->prompt);
     ShopClose(&s->shop);
     ShopRestock(&s->shop);
+    ForgeClose(&s->forge);
+    QteClose(&s->qte);
+    VfxRoomStart(&s->ambience, def->light, (int)def->lights);
     UiDialogHide(&s->dialog);
     s->after_script = AFTER_NONE;
 
     if (s->phase == PHASE_SETTLED) PlayIntro(s, def);
 
     TraceLog(LOG_INFO, "SCENE: loaded %d (actors=%d shop=%d settle=%.2fs)",
-             id, (int)s->actors, (int)def->has_shop, SettleTime(def));
+             id, (int)s->actors, (int)def->feature, SettleTime(def));
 }
 
 static void BeginTravel(Scene *s, int to)
 {
     if (to < 0 || to >= SCENE_COUNT || to == (int)s->id) return;
     s->fade_dir = +1;
+    s->fade_kind = FADE_TRAVEL;
     s->fade_target = (unsigned char)to;
     UiMenuClose(&s->menu);
     ShopClose(&s->shop);
+    ForgeClose(&s->forge);
+    QteClose(&s->qte);
     UiDialogHide(&s->dialog);
     TraceLog(LOG_INFO, "SCENE: travel %d -> %d", s->id, to);
 }
@@ -328,13 +532,18 @@ void SceneInit(Scene *s, SceneId start)
     UiDialogInit(&s->dialog);
     UiMenuInit(&s->menu);
     ShopInit(&s->shop);
+    ForgeInit(&s->forge);
+    QteInit(&s->qte);
+    VfxRoomStop(&s->ambience);
     s->prompt.open = false;
     s->prompt_kind = PROMPT_SYSTEM;
     s->after_script = AFTER_NONE;
     s->quit_requested = false;
     s->fade = 0.0f;
     s->fade_dir = 0;
+    s->fade_kind = FADE_TRAVEL;
     s->fade_target = 0;
+    s->day = 1;
     s->actors = 0;
     InvReset();
     LoadRoom(s, start);
@@ -347,6 +556,8 @@ bool SceneLoadSave(Scene *s)
 
     for (int i = 0; i < ITEM_COUNT; i++) g_inv.held[i] = blob.held[i];
     g_inv.gold = blob.gold;
+    g_inv.known = blob.known;
+    s->day = blob.day ? blob.day : 1;
 
     UnloadRoom(s);
     LoadRoom(s, (SceneId)blob.scene);
@@ -371,11 +582,13 @@ bool SceneLoadSave(Scene *s)
 
 void SceneReset(Scene *s)
 {
+    s->day = 1;
     const SceneId id = (SceneId)s->id;
     UnloadRoom(s);
     s->quit_requested = false;
     s->fade = 0.0f;
     s->fade_dir = 0;
+    s->fade_kind = FADE_TRAVEL;
     LoadRoom(s, id);
 }
 
@@ -397,6 +610,14 @@ static void UpdateFade(Scene *s, float dt)
 
     if (s->fade_dir > 0 && s->fade >= 1.0f) {
         s->fade = 1.0f;
+        if (s->fade_kind == FADE_DAY) {
+            AdvanceDay(s);
+            s->fade_dir = -1;
+            /* Said on the way back up rather than at full black, so the line
+               is readable rather than a flash behind the curtain. */
+            PlayScript(s, DAY_BREAK, LEN(DAY_BREAK), AFTER_NONE);
+            return;
+        }
         UnloadRoom(s);
         LoadRoom(s, (SceneId)s->fade_target);
         s->fade_dir = -1;
@@ -410,6 +631,12 @@ void SceneUpdate(Scene *s, float dt)
 {
     UpdateFade(s, dt);
     ShopUpdate(&s->shop, dt);
+    ForgeUpdate(&s->forge, dt);
+    QteUpdate(&s->qte, dt);
+    /* Ambience keeps running behind a panel. A hearth that freezes the moment
+       the player opens a menu is worse than no hearth at all. */
+    VfxRoomUpdate(&s->ambience, dt);
+    if (QteFinished(&s->qte)) EndHeat(s);
 
     const SceneDef *def = &SCENES[s->id];
     s->clock += dt;
@@ -449,16 +676,30 @@ static bool Busy(const Scene *s) { return s->fade_dir != 0; }
 
 void SceneToggleMenu(Scene *s)
 {
-    if (Busy(s) || UiPromptIsOpen(&s->prompt) || ShopIsOpen(&s->shop)) return;
+    if (Busy(s) || QteIsOpen(&s->qte) || UiPromptIsOpen(&s->prompt) ||
+        ShopIsOpen(&s->shop) || ForgeIsOpen(&s->forge)) return;
     if (UiMenuIsOpen(&s->menu)) UiMenuClose(&s->menu);
-    else if (s->dialog.phase == DIALOG_HIDDEN) UiMenuOpen(&s->menu);
+    else if (s->dialog.phase == DIALOG_HIDDEN) {
+        UiMenuOpen(&s->menu, (int)SCENES[s->id].feature);
+    }
 }
 
 void SceneMove(Scene *s, int dx, int dy)
 {
     if (Busy(s)) return;
-    if (UiPromptIsOpen(&s->prompt))    UiPromptMove(&s->prompt, dx);
+    /* The minigame takes the arrow keys before anything else can. dx/dy are
+       translated into QteKey here so qte.c never learns what a keyboard is,
+       and main.c needs no new bindings at all. */
+    if (QteIsOpen(&s->qte)) {
+        if (dx < 0)      QteKeyPress(&s->qte, QK_LEFT);
+        else if (dx > 0) QteKeyPress(&s->qte, QK_RIGHT);
+        else if (dy < 0) QteKeyPress(&s->qte, QK_UP);
+        else if (dy > 0) QteKeyPress(&s->qte, QK_DOWN);
+        return;
+    }
+    if (UiPromptIsOpen(&s->prompt))    UiPromptMove(&s->prompt, dx, dy);
     else if (ShopIsOpen(&s->shop))     ShopInput(&s->shop, dx, dy, false);
+    else if (ForgeIsOpen(&s->forge))   ForgeInput(&s->forge, dx, dy, false);
     else if (UiMenuIsOpen(&s->menu))   UiMenuInput(&s->menu, dx, dy, false, false);
 }
 
@@ -466,8 +707,9 @@ void SceneSort(Scene *s, SortMode mode)
 {
     /* Same routing rule as every other key: topmost layer only. The prompt is
        modal, so nothing behind it reorders while a question is on screen. */
-    if (Busy(s) || UiPromptIsOpen(&s->prompt)) return;
+    if (Busy(s) || QteIsOpen(&s->qte) || UiPromptIsOpen(&s->prompt)) return;
     if (ShopIsOpen(&s->shop))            ShopSort(&s->shop, mode);
+    else if (ForgeIsOpen(&s->forge))     ForgeSort(&s->forge, mode);
     else if (UiMenuTakesSort(&s->menu))  SortPress(&s->menu.sort, mode);
 }
 
@@ -477,6 +719,11 @@ void SceneBack(Scene *s)
        open it raises the system prompt. ESC never ends the process itself:
        quitting is a deliberate confirmation, not a reflex. */
     if (Busy(s)) return;
+
+    /* The one place ESC does nothing. The ore is already in the fire, the
+       sequence always terminates on its own, and a reflexive back-key that
+       threw a heat away would be exactly what the ladder exists to prevent. */
+    if (QteIsOpen(&s->qte)) return;
 
     if (UiPromptIsOpen(&s->prompt)) {
         UiPromptClose(&s->prompt);
@@ -488,6 +735,12 @@ void SceneBack(Scene *s)
            by a character. */
         ShopClose(&s->shop);
         PlayScript(s, SHOP_AGAIN, LEN(SHOP_AGAIN), AFTER_ASK_AGAIN);
+    } else if (ForgeIsOpen(&s->forge)) {
+        /* One level, like everywhere else: the list closes and the question
+           that opened it comes back, so a player who wanted the other door
+           does not have to walk back to the anvil to find it. */
+        ForgeClose(&s->forge);
+        OpenSmithyPrompt(s);
     } else if (UiMenuIsOpen(&s->menu)) {
         UiMenuInput(&s->menu, 0, 0, false, true);
     } else if (s->dialog.phase != DIALOG_HIDDEN) {
@@ -501,8 +754,23 @@ void SceneAdvance(Scene *s)
 {
     if (Busy(s)) return;
 
+    if (QteIsOpen(&s->qte)) { QteKeyPress(&s->qte, QK_SPACE); return; }
+
     if (UiPromptIsOpen(&s->prompt)) {
         const int choice = UiPromptAccept(&s->prompt);
+
+        if (s->prompt_kind == PROMPT_SMITHY) {
+            if (choice == SMITHY_FORGE_OPT) ForgeOpen(&s->forge, FORGE_MODE_CRAFT);
+            else if (choice == SMITHY_BOOK_OPT) ForgeOpen(&s->forge, FORGE_MODE_BOOK);
+            return;
+        }
+
+        if (s->prompt_kind == PROMPT_END_DAY) {
+            if (choice == END_DAY_YES) BeginDayChange(s);
+            /* NOT YET leaves the menu exactly as it was, still open behind
+               the box the player just dismissed. */
+            return;
+        }
 
         if (s->prompt_kind == PROMPT_ANYTHING_ELSE) {
             if (choice == AGAIN_YES) {
@@ -521,7 +789,7 @@ void SceneAdvance(Scene *s)
                log it would have doubled the disk traffic. */
             const bool ok = WriteSave(s);
             OpenSystemPrompt(s);
-            s->prompt.note = ok ? "Progress saved." : "Save failed.";
+            s->prompt.note = ok ? NOTE_SAVED : NOTE_SAVE_NO;
             TraceLog(LOG_INFO, "SCENE: save -> %s", ok ? "ok" : "FAILED");
         } break;
         case SYS_QUIT:
@@ -538,16 +806,22 @@ void SceneAdvance(Scene *s)
         return;
     }
 
+    if (ForgeIsOpen(&s->forge)) {
+        const ForgeCommand cmd = ForgeInput(&s->forge, 0, 0, true);
+        if (ForgeCmdIsBegin(cmd)) BeginHeat(s, ForgeCmdRecipe(cmd));
+        return;
+    }
+
     if (UiMenuIsOpen(&s->menu)) {
         const MenuCommand cmd = UiMenuInput(&s->menu, 0, 0, true, false);
         if (cmd == MENU_CMD_TALK) {
             const SceneDef *def = &SCENES[s->id];
-            /* In a room with a counter, talking to the shopkeeper is how you
-               reach it. He speaks first and the counter follows, because a
-               trader who opens his ledger without a word is a vending
-               machine. */
-            PlayScript(s, def->solo, def->solo_len,
-                       def->has_shop ? AFTER_OPEN_SHOP : AFTER_NONE);
+            /* TALK is now only talk. Trading is BUY/SELL, one row down. */
+            PlayScript(s, def->solo, def->solo_len, AFTER_NONE);
+        } else if (cmd == MENU_CMD_FEATURE) {
+            OpenRoomFeature(s);
+        } else if (cmd == MENU_CMD_END_DAY) {
+            OpenEndDayPrompt(s);
         } else if (MenuCmdIsTravel(cmd)) {
             BeginTravel(s, MenuCmdScene(cmd));
         }
@@ -568,14 +842,9 @@ void SceneAdvance(Scene *s)
         return;
     }
 
-    if (s->dialog.phase == DIALOG_HIDDEN) {
-        /* Script over in a shop room: the counter is what the player is here
-           for, so the accept key opens it rather than doing nothing. */
-        if (SCENES[s->id].has_shop && s->phase == PHASE_DONE) {
-            ShopOpen(&s->shop);
-        }
-        return;
-    }
+    /* Nothing to advance and nothing to open: the accept key on an idle room
+       does nothing at all, and the corner hint says where to go instead. */
+    if (s->dialog.phase == DIALOG_HIDDEN) return;
 
     if (UiDialogAdvance(&s->dialog)) {
         s->script_at++;
@@ -588,7 +857,6 @@ void SceneAdvance(Scene *s)
         const AfterScript then = (AfterScript)s->after_script;
         s->after_script = AFTER_NONE;
         switch (then) {
-        case AFTER_OPEN_SHOP:   ShopOpen(&s->shop);   break;
         case AFTER_RESUME_SHOP: ShopResume(&s->shop); break;
         case AFTER_ASK_AGAIN:
             s->prompt_kind = PROMPT_ANYTHING_ELSE;
@@ -606,6 +874,89 @@ void SceneAdvance(Scene *s)
 
 /* ---- draw -------------------------------------------------------------- */
 
+/* ---- the standing HUD --------------------------------------------------
+
+   Two pieces, both outside every panel in the game, both drawn last.
+
+   The date badge sits in the 8 px margin above the page frame - PAGE_Y is 8,
+   the badge is 8 tall, so it never overlaps a screen and never has to be
+   suppressed for one. That is what lets it be on screen at all times without
+   a single special case.
+
+   The menu hint is the answer to the question 1.7 created. Taking away the
+   counter that opened itself and the anvil that answered the accept key left
+   a room that does nothing when you press anything, so the way in has to be
+   written down somewhere. It shows only when the room is idle: with a panel
+   up the player has already found the menu, and with dialogue up the balloon
+   is where the bottom of the screen is being read. */
+
+/* 1.8 gave the badge a frame. A bare filled rectangle was legible over the
+   smithy's dark beams and vanished into the shop's lit shelves; every other
+   piece of standing furniture in the game is a UiPanel and this was the one
+   thing floating.
+
+   The height is the tight part. A bordered panel needs a border row, a pad
+   row, seven rows of glyph, a pad and a border - eleven - and it has to clear
+   the page title line at PAGE_Y + 7, because that is where the shop draws its
+   purse. Twelve fits with a pixel to spare and the assertion below is what
+   keeps it fitting; it is the only reason the badge can be on screen at all
+   times without a single per-screen special case. It does sit *on* the page
+   frame's top edge rather than above it, which is what the mock shows. */
+/* 1.9 widened it. 1.8 sized the box to the tightest thing that would hold
+   five digits, which is how you get a box that is correct and looks mean -
+   64x12 with five pixels of air either side reads as a label crammed into
+   its own frame rather than a plate with something on it.
+
+   The height is capped by the assertion below and nothing else, so it takes
+   all of it. The width is free, so the padding and the gap between DAY and
+   the number both roughly doubled: the number now has somewhere to sit
+   rather than being pushed against the right wall. */
+#define HUD_DAY_Y     1
+#define HUD_DAY_H    13
+#define HUD_DAY_PAD   9
+#define HUD_DAY_GAP  16
+#define HUD_DAY_DIGITS 5
+#define HUD_DAY_W  (HUD_DAY_PAD * 2 + FONT_CELL_W * 3 + HUD_DAY_GAP + \
+                    FONT_CELL_W * HUD_DAY_DIGITS)
+#define HUD_DAY_X  (VSCREEN_W - HUD_DAY_W - 5)
+
+_Static_assert(HUD_DAY_Y + HUD_DAY_H <= PAGE_Y + 7,
+               "the date badge would land on a page's title line");
+
+#define HUD_HINT      "M  MENU"
+#define HUD_HINT_X    8
+#define HUD_HINT_Y  (VSCREEN_H - 10)
+
+/* The build stamp, opposite the menu hint on the same row. Dim, small, and
+   never suppressed: a screenshot or a stream of a contest build should say
+   which build it is without anyone having to ask, and the moment it can be
+   hidden is the moment the one screenshot that matters was taken with it
+   hidden. It sits on the page frame's bottom edge for the same reason the
+   date badge sits on the top one. */
+#define HUD_VER_X   (VSCREEN_W - 6)
+#define HUD_VER_Y   HUD_HINT_Y
+
+_Static_assert(sizeof(HUD_HINT) - 1 + sizeof(GAME_VERSION) < 30,
+               "the menu hint and the version stamp would meet in the middle");
+
+static void DrawDayBadge(const Scene *s)
+{
+    /* Fixed width rather than measured, so the box does not twitch a glyph
+       wider on the day the counter reaches ten. */
+    UiPanel(HUD_DAY_X, HUD_DAY_Y, HUD_DAY_W, HUD_DAY_H, UI_FILL, UI_EDGE);
+    UiDrawText("DAY", HUD_DAY_X + HUD_DAY_PAD, HUD_DAY_Y + 3, UI_DIM);
+    UiNumber(HUD_DAY_X + HUD_DAY_W - HUD_DAY_PAD, HUD_DAY_Y + 3,
+             (int)s->day, UI_TEXT);
+}
+
+static bool RoomIsIdle(const Scene *s)
+{
+    return !UiPromptIsOpen(&s->prompt) && !ShopIsOpen(&s->shop) &&
+           !ForgeIsOpen(&s->forge) && !QteIsOpen(&s->qte) &&
+           !UiMenuIsOpen(&s->menu) && s->dialog.phase == DIALOG_HIDDEN &&
+           s->fade_dir == 0;
+}
+
 void SceneDraw(const Scene *s)
 {
     DrawTexture(s->bg, 0, 0, WHITE);
@@ -616,6 +967,12 @@ void SceneDraw(const Scene *s)
        Drawn in table order, so an actor listed later overlaps one listed
        earlier. In the shop that is JACK over the counter he steps out from
        behind; the table is the depth order. */
+    /* Between the backdrop and the cast: in the smithy BEST stands at x=239
+       and the hearth is at 216..248, so he has to occlude the near edge of
+       it. Behind the cast is also right for the shop's lamps, which hang
+       further back in the room than either figure stands. */
+    VfxRoomDraw(&s->ambience);
+
     for (int i = 0; i < s->actors; i++) {
         DrawTexture(s->actor[i], (int)floorf(s->actor_x[i] + 0.5f),
                     (int)SCENES[s->id].actor[i].rest_y, WHITE);
@@ -623,8 +980,15 @@ void SceneDraw(const Scene *s)
 
     UiDialogDraw(&s->dialog);
     ShopDraw(&s->shop);
+    ForgeDraw(&s->forge);
+    QteDraw(&s->qte);
     UiMenuDraw(&s->menu);
     UiPromptDraw(&s->prompt);
+
+    if (RoomIsIdle(s)) UiDrawText(HUD_HINT, HUD_HINT_X, HUD_HINT_Y, UI_DIM);
+    UiDrawText(GAME_VERSION,
+               HUD_VER_X - UiTextWidth(GAME_VERSION), HUD_VER_Y, UI_DIM);
+    DrawDayBadge(s);
 
     if (s->fade > 0.0f) {
         const unsigned char a = (unsigned char)(s->fade * 255.0f);

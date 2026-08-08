@@ -100,8 +100,18 @@ void UiPageChrome(const char *title, const char *hint);
    so taking pixels from it would mean rewrapping thirty-odd strings and
    living with whatever bad breaks fell out. The full name is always on screen
    anyway - it is the heading of the detail pane for the selected row. */
-#define ROW_QTY_RESERVE   34   /* 5 digits + gap  */
-#define ROW_MONEY_RESERVE 40   /* "9999 G" + gap  */
+#define ROW_QTY_RESERVE   34   /* 5 digits + gap      */
+#define ROW_MONEY_RESERVE 40   /* "9999 G" + gap      */
+/* Budgeted for the widest value the field can actually hold, not the widest
+   one the demo happens to produce. held[] is unsigned short, so "65535 EA" is
+   reachable - 48 px of glyphs - and a column sized for the four digits that
+   turn up in play is the same mistake as the purse that collided with the
+   sort tag at five digits, which nothing in 1.3 reached either.
+
+   It costs the row label two characters. That is the trade already made for
+   ROW_MONEY_RESERVE and it is paid the same way: the full name is the heading
+   of the detail pane for whichever row the cursor is on. */
+#define ROW_COUNT_RESERVE 52   /* "65535 EA" + gap    */
 
 void UiRow(int x, int y, int w, const char *label, bool selected, int rarity,
            int reserve);
@@ -115,6 +125,16 @@ void UiNumber(int right, int y, int value, Color tint);
    column position on different tabs, and an unlabelled 5 next to POTION reads
    as "five potions" at least once to everybody. */
 void UiMoney(int right, int y, int value, Color tint);
+
+/* Right-aligned item count with its unit: "3 EA". Same argument as UiMoney,
+   from the other side: the shop shows a price and a stock count in the same
+   column on different tabs, so a bare number there is ambiguous in whichever
+   direction the player is not currently thinking. Labelling both ends the
+   question without a column heading, which at 320x240 there is no room for.
+
+   Counts that are one half of a ratio - the forge's "34/40" ingredient rows -
+   stay bare. "34 EA/40 EA" is not clearer than "34/40", it is just longer. */
+void UiCount(int right, int y, int value, Color tint);
 
 /* Inset detail pane: heading, optional tier line, optional sub-line, rule,
    hand-wrapped body. */
